@@ -21,8 +21,10 @@ import {
   listAppointmentsController,
   listAvailabilityController,
   loginController,
+  logoutController,
   meController,
   payAppointmentController,
+  refreshController,
   registerController,
   updateAppointmentController,
   updateAvailabilityController,
@@ -37,6 +39,8 @@ router.get("/health", healthController);
 
 router.post("/auth/login", asyncHandler(loginController));
 router.post("/auth/register", asyncHandler(registerController));
+router.post("/auth/logout", logoutController);
+router.post("/auth/refresh", asyncHandler(refreshController));
 router.get("/auth/me", asyncHandler(meController));
 
 router.get("/bootstrap", asyncHandler(bootstrapController));

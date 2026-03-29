@@ -1,5 +1,17 @@
 import type { Request, Response } from "express";
-import { createToken, requireAuth, serializeUser } from "../core/auth.ts";
+import {
+  AUTH_COOKIE_NAME,
+  ACCESS_TOKEN_MAX_AGE_SECONDS,
+  createAccessToken,
+  createCsrfToken,
+  createRefreshToken,
+  CSRF_COOKIE_NAME,
+  getCsrfTokenFromCookie,
+  REFRESH_COOKIE_NAME,
+  requireAuth,
+  requireRefreshUser,
+  serializeUser
+} from "../core/auth.ts";
 import {
   buildFinancialSummary,
   cancelAppointment,
@@ -37,6 +49,7 @@ import { logInfo } from "./logger.ts";
 import { findUserByCredentials, loadAppData, mutateAppData } from "../infra/mongo.ts";
 
 const MISSING_BARBER_AND_DATE_MESSAGE = "barberId e date sao obrigatorios.";
+const ONE_WEEK_IN_SECONDS = 60 * 60 * 24 * 7;
 
 function getQueryValue(value: unknown): string | null {
   return typeof value === "string" ? value : null;
@@ -58,6 +71,101 @@ function getCurrentDate() {
   return new Date();
 }
 
+type CookieSameSite = "lax" | "strict" | "none";
+
+function getCookieOptions() {
+  const secureSetting = process.env.AUTH_COOKIE_SECURE;
+  const secure =
+    secureSetting === "true" || (secureSetting !== "false" && process.env.NODE_ENV === "production");
+  const sameSite = (process.env.AUTH_COOKIE_SAMESITE ?? "lax").toLowerCase() as CookieSameSite;
+
+  return {
+    secure,
+    sameSite: sameSite === "none" || sameSite === "strict" ? sameSite : "lax",
+    domain: process.env.AUTH_COOKIE_DOMAIN?.trim() || null,
+    path: process.env.AUTH_COOKIE_PATH?.trim() || "/"
+  };
+}
+
+function setCookie(
+  response: Response,
+  name: string,
+  value: string,
+  options: { httpOnly: boolean; maxAgeSeconds: number }
+) {
+  const cookieOptions = getCookieOptions();
+  const expires = new Date(Date.now() + options.maxAgeSeconds * 1000).toUTCString();
+  const cookie = [
+    `${name}=${value}`,
+    `Path=${cookieOptions.path}`,
+    `SameSite=${cookieOptions.sameSite}`,
+    `Max-Age=${options.maxAgeSeconds}`,
+    `Expires=${expires}`,
+    "Priority=High"
+  ];
+
+  if (options.httpOnly) {
+    cookie.push("HttpOnly");
+  }
+
+  if (cookieOptions.domain) {
+    cookie.push(`Domain=${cookieOptions.domain}`);
+  }
+
+  if (cookieOptions.secure) {
+    cookie.push("Secure");
+  }
+
+  response.append("Set-Cookie", cookie.join("; "));
+}
+
+function clearCookie(response: Response, name: string, httpOnly: boolean) {
+  const cookieOptions = getCookieOptions();
+  const cookie = [
+    `${name}=`,
+    `Path=${cookieOptions.path}`,
+    `SameSite=${cookieOptions.sameSite}`,
+    "Max-Age=0",
+    "Expires=Thu, 01 Jan 1970 00:00:00 GMT",
+    "Priority=High"
+  ];
+
+  if (httpOnly) {
+    cookie.push("HttpOnly");
+  }
+
+  if (cookieOptions.domain) {
+    cookie.push(`Domain=${cookieOptions.domain}`);
+  }
+
+  if (cookieOptions.secure) {
+    cookie.push("Secure");
+  }
+
+  response.append("Set-Cookie", cookie.join("; "));
+}
+
+function setAuthCookies(response: Response, accessToken: string, refreshToken: string, csrfToken: string) {
+  setCookie(response, AUTH_COOKIE_NAME, accessToken, {
+    httpOnly: true,
+    maxAgeSeconds: ACCESS_TOKEN_MAX_AGE_SECONDS
+  });
+  setCookie(response, REFRESH_COOKIE_NAME, refreshToken, {
+    httpOnly: true,
+    maxAgeSeconds: ONE_WEEK_IN_SECONDS
+  });
+  setCookie(response, CSRF_COOKIE_NAME, csrfToken, {
+    httpOnly: false,
+    maxAgeSeconds: ONE_WEEK_IN_SECONDS
+  });
+}
+
+function clearAuthCookies(response: Response) {
+  clearCookie(response, AUTH_COOKIE_NAME, true);
+  clearCookie(response, REFRESH_COOKIE_NAME, true);
+  clearCookie(response, CSRF_COOKIE_NAME, false);
+}
+
 export function healthController(_request: Request, response: Response) {
   response.status(200).json({ status: "ok" });
 }
@@ -72,7 +180,9 @@ export async function loginController(request: Request, response: Response) {
     return;
   }
 
-  response.status(200).json({ user: serializeUser(user as any), token: createToken(user as any) });
+  const accessToken = createAccessToken(user as any);
+  setAuthCookies(response, accessToken, createRefreshToken(user as any), createCsrfToken());
+  response.status(200).json({ user: serializeUser(user as any), accessToken });
 }
 
 export async function registerController(request: Request, response: Response) {
@@ -84,7 +194,32 @@ export async function registerController(request: Request, response: Response) {
       password: body.password ?? ""
     })
   );
-  response.status(201).json({ user: serializeUser(user), token: createToken(user) });
+  const accessToken = createAccessToken(user);
+  setAuthCookies(response, accessToken, createRefreshToken(user), createCsrfToken());
+  response.status(201).json({ user: serializeUser(user), accessToken });
+}
+
+export function logoutController(_request: Request, response: Response) {
+  clearAuthCookies(response);
+  response.status(204).end();
+}
+
+export async function refreshController(request: Request, response: Response) {
+  const data = await loadAppData();
+  const user = requireRefreshUser(data, request);
+  const csrfToken = getCsrfTokenFromCookie(request) ?? createCsrfToken();
+  const accessToken = createAccessToken(user);
+
+  setCookie(response, AUTH_COOKIE_NAME, accessToken, {
+    httpOnly: true,
+    maxAgeSeconds: ACCESS_TOKEN_MAX_AGE_SECONDS
+  });
+  setCookie(response, CSRF_COOKIE_NAME, csrfToken, {
+    httpOnly: false,
+    maxAgeSeconds: ONE_WEEK_IN_SECONDS
+  });
+
+  response.status(200).json({ user: serializeUser(user), accessToken });
 }
 
 export async function meController(request: Request, response: Response) {

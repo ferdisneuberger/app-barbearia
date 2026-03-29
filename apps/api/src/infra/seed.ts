@@ -1,5 +1,6 @@
 import type { BusinessRules, User } from "../domain/types.ts";
 import { createId } from "../core/id.ts";
+import { hashPassword } from "../core/password.ts";
 import { DEFAULT_BUSINESS_RULES } from "../core/rules.ts";
 
 export function createDefaultAdminSeed(): User {
@@ -7,7 +8,7 @@ export function createDefaultAdminSeed(): User {
     id: createId(),
     name: "Admin Barbearia",
     email: "admin@barbearia.local",
-    password: "123456",
+    password: hashPassword("123456"),
     role: "admin"
   };
 }

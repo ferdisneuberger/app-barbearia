@@ -62,9 +62,7 @@ function NavSelect(props: NavSelectProps) {
 function LoadingScreen() {
   return (
     <main className="shell">
-      <section className="login-card">
-        <h1>Validando sessão...</h1>
-      </section>
+      <section className="login-card loading-card" aria-hidden="true" />
     </main>
   );
 }
@@ -370,9 +368,7 @@ function renderClientContent(app: BarbershopApp) {
     <AppointmentsPanel
       role={app.user!.role}
       appointments={app.filteredAppointments}
-      search={app.adminSearch}
       statusFilter={app.appointmentStatusFilter}
-      onSearchChange={app.setAdminSearch}
       onStatusFilterChange={app.setAppointmentStatusFilter}
       businessRules={app.businessRules}
       menuAppointmentId={app.menuAppointmentId}
@@ -462,7 +458,8 @@ export function App() {
       <AppHeader
         user={app.user}
         onLogout={() => {
-          app.clearSession();
+          void app.handleLogout();
+          app.setAuthScreen("login");
           app.setMessage("");
         }}
       />

@@ -24,17 +24,51 @@ function resolveApiUrl() {
 }
 
 const apiUrl = resolveApiUrl();
+const CSRF_COOKIE_NAME = "barbearia.csrf_token";
 
-export function createApiClient(getToken: () => string | null) {
-  async function request<T>(path: string, init?: RequestInit): Promise<T> {
-    const token = getToken();
+function getCsrfToken() {
+  if (globalThis.document === undefined) {
+    return "";
+  }
+
+  const cookies = globalThis.document.cookie.split(";");
+  for (const cookie of cookies) {
+    const [name, ...rest] = cookie.trim().split("=");
+    if (name === CSRF_COOKIE_NAME) {
+      return rest.join("=");
+    }
+  }
+
+  return "";
+}
+
+function isUnsafeMethod(method?: string) {
+  return method !== undefined && !["GET", "HEAD", "OPTIONS"].includes(method);
+}
+
+export function createApiClient(getAccessToken?: () => string | null, setAccessToken?: (value: string | null) => void) {
+  async function doRequest<T>(path: string, init?: RequestInit): Promise<T> {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      ...(init?.headers)
+    };
+
+    const accessToken = getAccessToken?.();
+    if (accessToken) {
+      headers.Authorization = `Bearer ${accessToken}`;
+    }
+
+    if (isUnsafeMethod(init?.method)) {
+      const csrfToken = getCsrfToken();
+      if (csrfToken) {
+        headers["x-csrf-token"] = csrfToken;
+      }
+    }
+
     const response = await fetch(`${apiUrl}${path}`, {
       ...init,
-      headers: {
-        "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : undefined),
-        ...(init?.headers)
-      }
+      credentials: "include",
+      headers
     });
 
     if (response.status === 204) {
@@ -49,19 +83,48 @@ export function createApiClient(getToken: () => string | null) {
     return data;
   }
 
+  async function request<T>(path: string, init?: RequestInit, allowRefresh = true): Promise<T> {
+    try {
+      return await doRequest<T>(path, init);
+    } catch (error) {
+      const message = (error as Error).message;
+      const isAuthPath =
+        path === "/auth/login" ||
+        path === "/auth/register" ||
+        path === "/auth/logout" ||
+        path === "/auth/refresh";
+
+      const shouldTryRefresh =
+        message === "Usuario nao autenticado." || message === "Token expirado.";
+
+      if (!allowRefresh || isAuthPath || !shouldTryRefresh) {
+        throw error;
+      }
+
+      const refreshData = await doRequest<{ accessToken?: string }>("/auth/refresh", { method: "POST" });
+      if (refreshData.accessToken) {
+        setAccessToken?.(refreshData.accessToken);
+      }
+      return doRequest<T>(path, init);
+    }
+  }
+
   return {
     request,
     login(email: string, password: string) {
-      return request<{ user: User; token: string }>("/auth/login", {
+      return request<{ user: User; accessToken: string }>("/auth/login", {
         method: "POST",
         body: JSON.stringify({ email, password })
       });
     },
     register(name: string, email: string, password: string) {
-      return request<{ user: User; token: string }>("/auth/register", {
+      return request<{ user: User; accessToken: string }>("/auth/register", {
         method: "POST",
         body: JSON.stringify({ name, email, password })
       });
+    },
+    logout() {
+      return request<void>("/auth/logout", { method: "POST" });
     },
     me() {
       return request<{ user: User }>("/auth/me");

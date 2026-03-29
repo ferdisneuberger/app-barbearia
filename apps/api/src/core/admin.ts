@@ -1,6 +1,7 @@
 import type { AppData, BusinessRules, Role, User } from "../domain/types.ts";
 import { DomainError } from "./booking.ts";
 import { createId } from "./id.ts";
+import { hashPassword } from "./password.ts";
 import { normalizeBusinessRules } from "./rules.ts";
 import { buildIso, createDailySlotTimes } from "./time.ts";
 
@@ -31,7 +32,7 @@ function createUser(
     id: createId(),
     name: input.name,
     email: input.email,
-    password: input.password,
+    password: hashPassword(input.password),
     role
   } satisfies User;
 }

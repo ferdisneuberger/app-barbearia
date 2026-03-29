@@ -21,8 +21,8 @@ import {
   getTodayInSaoPaulo
 } from "./utils";
 
-const TOKEN_STORAGE_KEY = "barbearia.token";
 const USER_STORAGE_KEY = "barbearia.user";
+const ACCESS_TOKEN_STORAGE_KEY = "barbearia.access_token";
 const DEFAULT_BUSINESS_RULES: BusinessRules = {
   appointmentCompletionRule: "after_start",
   barberCancellationHours: 12,
@@ -33,7 +33,7 @@ const DEFAULT_BUSINESS_RULES: BusinessRules = {
 export function useBarbershopApp() {
   const [authScreen, setAuthScreen] = useState<"login" | "register">("login");
   const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string | null>(null);
+  const [accessToken, setAccessToken] = useState<string | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -110,7 +110,7 @@ export function useBarbershopApp() {
   const bookingAvailabilityRequestRef = useRef(0);
   const bookingMonthRequestRef = useRef(0);
 
-  const api = useMemo(() => createApiClient(() => token), [token]);
+  const api = useMemo(() => createApiClient(() => accessToken, setAccessToken), [accessToken]);
 
   function resolveAvailableTimes(slots: Availability[]) {
     return slots
@@ -137,18 +137,54 @@ export function useBarbershopApp() {
     setServiceBarberIds([]);
   }
 
-  function persistSession(nextUser: User, nextToken: string) {
+  function persistSession(nextUser: User) {
     setUser(nextUser);
-    setToken(nextToken);
-    localStorage.setItem(TOKEN_STORAGE_KEY, nextToken);
     localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(nextUser));
+    if (accessToken) {
+      sessionStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, accessToken);
+    }
   }
 
   function clearSession() {
     setUser(null);
-    setToken(null);
-    localStorage.removeItem(TOKEN_STORAGE_KEY);
+    setAccessToken(null);
     localStorage.removeItem(USER_STORAGE_KEY);
+    sessionStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
+    setAdminView("home");
+    setAdminManagementView("services");
+    setBarberView("agenda");
+    setAdminSearch("");
+    setAdminBarberFilter("");
+    setAdminServiceFilter("");
+    setAppointmentStatusFilter("all");
+    setMenuAppointmentId(null);
+    setActionModal(null);
+    setShowBookingModal(false);
+    setMessage("");
+    setSelectedClientId("");
+    setSelectedBarberId("");
+    setSelectedServiceId("");
+    setSelectedTime("");
+    setBookingClientSearch("");
+    setBookingBarberSearch("");
+    setAppointments([]);
+    setAvailability([]);
+    setBookingAvailability([]);
+    setBookingMonthAvailability([]);
+    setAvailabilityFeedback("");
+  }
+
+  function handleAppError(error: unknown) {
+    const message = (error as Error).message;
+
+    if (message === "Usuario nao autenticado." || message === "Token expirado.") {
+      clearSession();
+      setAuthScreen("login");
+      setMessage("Sua sessão expirou. Faça login novamente.");
+      return;
+    }
+
+    setMessage(message);
   }
 
   function showAvailabilityFeedback(nextMessage: string) {
@@ -498,19 +534,14 @@ export function useBarbershopApp() {
   }
 
   useEffect(() => {
-    const storedToken = localStorage.getItem(TOKEN_STORAGE_KEY);
-    const storedUser = localStorage.getItem(USER_STORAGE_KEY);
-
-    if (!storedToken || !storedUser) {
-      setAuthReady(true);
-      return;
+    const storedAccessToken = sessionStorage.getItem(ACCESS_TOKEN_STORAGE_KEY);
+    if (storedAccessToken) {
+      setAccessToken(storedAccessToken);
     }
-
-    setToken(storedToken);
 
     async function restoreSession() {
       try {
-        const data = await createApiClient(() => storedToken).me();
+        const data = await createApiClient().me();
         setUser(data.user);
         localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(data.user));
       } catch {
@@ -524,7 +555,16 @@ export function useBarbershopApp() {
   }, []);
 
   useEffect(() => {
-    if (!authReady || !user || !token) {
+    if (accessToken) {
+      sessionStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, accessToken);
+      return;
+    }
+
+    sessionStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
+  }, [accessToken]);
+
+  useEffect(() => {
+    if (!authReady || !user) {
       return;
     }
 
@@ -538,7 +578,7 @@ export function useBarbershopApp() {
 
         await Promise.all(tasks);
       } catch (error) {
-        setMessage((error as Error).message);
+        handleAppError(error);
       }
     }
 
@@ -546,7 +586,6 @@ export function useBarbershopApp() {
   }, [
     authReady,
     user,
-    token,
     selectedDate,
     selectedBarberId,
     adminScheduleScope,
@@ -567,7 +606,7 @@ export function useBarbershopApp() {
   }, [adminMonth, selectedDate, user]);
 
   useEffect(() => {
-    if (!showBookingModal || user?.role !== "client" || !token) {
+    if (!showBookingModal || user?.role !== "client") {
       return;
     }
 
@@ -575,15 +614,15 @@ export function useBarbershopApp() {
       try {
         await loadBookableAvailabilityMonth();
       } catch (error) {
-        setMessage((error as Error).message);
+        handleAppError(error);
       }
     }
 
     void syncBookableMonthAvailability();
-  }, [showBookingModal, user, token, selectedBarberId, bookingMonth]);
+  }, [showBookingModal, user, selectedBarberId, bookingMonth]);
 
   useEffect(() => {
-    if (user?.role !== "admin" || adminView !== "agendamento" || !token) {
+    if (user?.role !== "admin" || adminView !== "agendamento") {
       return;
     }
 
@@ -591,15 +630,15 @@ export function useBarbershopApp() {
       try {
         await loadAdminBookingAvailabilityMonth();
       } catch (error) {
-        setMessage((error as Error).message);
+        handleAppError(error);
       }
     }
 
     void syncAdminBookingMonthAvailability();
-  }, [user, adminView, token, selectedBarberId, bookingMonth]);
+  }, [user, adminView, selectedBarberId, bookingMonth]);
 
   useEffect(() => {
-    if (user?.role !== "admin" || adminView !== "agendamento" || !token) {
+    if (user?.role !== "admin" || adminView !== "agendamento") {
       return;
     }
 
@@ -607,15 +646,15 @@ export function useBarbershopApp() {
       try {
         await loadAvailability();
       } catch (error) {
-        setMessage((error as Error).message);
+        handleAppError(error);
       }
     }
 
     void syncAdminBookingAvailability();
-  }, [user, adminView, token, selectedBarberId, selectedDate]);
+  }, [user, adminView, selectedBarberId, selectedDate]);
 
   useEffect(() => {
-    if (!showBookingModal || user?.role !== "client" || !token) {
+    if (!showBookingModal || user?.role !== "client") {
       return;
     }
 
@@ -623,12 +662,12 @@ export function useBarbershopApp() {
       try {
         await loadBookableAvailability();
       } catch (error) {
-        setMessage((error as Error).message);
+        handleAppError(error);
       }
     }
 
     void syncBookableAvailability();
-  }, [showBookingModal, user, token, selectedBarberId, selectedDate]);
+  }, [showBookingModal, user, selectedBarberId, selectedDate]);
 
   useEffect(() => {
     if (barberServices.length > 0 && !barberServices.some((service) => service.id === selectedServiceId)) {
@@ -657,10 +696,12 @@ export function useBarbershopApp() {
 
     try {
       const data = await api.login(email, password);
-      persistSession(data.user, data.token);
+      setAccessToken(data.accessToken);
+      sessionStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, data.accessToken);
+      persistSession(data.user);
       setMessage("");
     } catch (error) {
-      setMessage((error as Error).message);
+      handleAppError(error);
     }
   }
 
@@ -669,14 +710,26 @@ export function useBarbershopApp() {
 
     try {
       const data = await api.register(registerName, registerEmail, registerPassword);
-      persistSession(data.user, data.token);
+      setAccessToken(data.accessToken);
+      sessionStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, data.accessToken);
+      persistSession(data.user);
       setRegisterName("");
       setRegisterEmail("");
       setRegisterPassword("");
       setMessage("");
     } catch (error) {
-      setMessage((error as Error).message);
+      handleAppError(error);
     }
+  }
+
+  async function handleLogout() {
+    try {
+      await api.logout();
+    } catch {
+      // Even if the backend session is already gone, the local UI state must be cleared.
+    }
+
+    clearSession();
   }
 
   async function handleCreateAppointment(event: FormEvent) {
@@ -1133,9 +1186,8 @@ export function useBarbershopApp() {
     setAuthScreen,
     user,
     setUser,
-    token,
-    setToken,
     clearSession,
+    handleLogout,
     email,
     setEmail,
     password,

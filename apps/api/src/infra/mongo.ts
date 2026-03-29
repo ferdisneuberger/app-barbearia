@@ -10,6 +10,7 @@ import type {
   User
 } from "../domain/types.ts";
 import { createDefaultBarberAvailability } from "../core/admin.ts";
+import { hashPassword, isPasswordHash, verifyPassword } from "../core/password.ts";
 import { DEFAULT_BUSINESS_RULES, normalizeBusinessRules } from "../core/rules.ts";
 import { createDefaultAdminSeed, createDefaultBusinessRulesSeed } from "./seed.ts";
 
@@ -138,6 +139,16 @@ export async function ensureAppDataConsistency() {
   if (!rules) {
     await BusinessRulesModel.create(DEFAULT_BUSINESS_RULES);
   }
+
+  const users = await UserModel.find().lean();
+  const usersToUpgrade = users.filter((user) => !isPasswordHash(user.password));
+  if (usersToUpgrade.length > 0) {
+    await Promise.all(
+      usersToUpgrade.map((user) =>
+        UserModel.updateOne({ id: user.id }, { password: hashPassword(user.password) })
+      )
+    );
+  }
 }
 
 export async function loadAppData(): Promise<AppData> {
@@ -209,8 +220,13 @@ export function mutateAppData<T>(mutator: (data: AppData) => Promise<T> | T) {
 }
 
 export async function findUserByCredentials(email: string, password: string) {
-  const user = await UserModel.findOne({ email, password }).lean();
-  return user ? stripMongoFields<User>(user as MongoDocument<User>) : null;
+  const user = await UserModel.findOne({ email }).lean();
+  if (!user) {
+    return null;
+  }
+
+  const plainUser = stripMongoFields<User>(user as MongoDocument<User>);
+  return verifyPassword(password, plainUser.password) ? plainUser : null;
 }
 
 function stripMongoFields<T>(document: MongoDocument<T>): T {

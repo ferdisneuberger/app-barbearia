@@ -1,14 +1,29 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import type { IncomingMessage } from "node:http";
 import type { AppData, Role, User } from "../domain/types.ts";
 import { DomainError } from "./booking.ts";
 
-const JWT_SECRET = process.env.JWT_SECRET ?? "barbearia-dev-secret";
+const nodeEnv = process.env.NODE_ENV ?? "development";
+const jwtSecretFromEnv = process.env.JWT_SECRET;
+
+if (nodeEnv === "production" && !jwtSecretFromEnv) {
+  throw new Error("JWT_SECRET precisa ser definido em producao.");
+}
+
+const JWT_SECRET = jwtSecretFromEnv ?? "barbearia-dev-secret";
+export const AUTH_COOKIE_NAME = "barbearia.access_token";
+export const REFRESH_COOKIE_NAME = "barbearia.refresh_token";
+export const CSRF_COOKIE_NAME = "barbearia.csrf_token";
+export const ACCESS_TOKEN_MAX_AGE_SECONDS = 60 * 15;
+export const REFRESH_TOKEN_MAX_AGE_SECONDS = 60 * 60 * 24 * 7;
+
+type TokenType = "access" | "refresh";
 
 type JwtPayload = {
   sub: string;
   role: Role;
   scope: string[];
+  type: TokenType;
   exp: number;
 };
 
@@ -59,23 +74,15 @@ function sign(value: string) {
   return createHmac("sha256", JWT_SECRET).update(value).digest("base64url");
 }
 
-export function serializeUser(user: User) {
-  return {
-    id: user.id,
-    name: user.name,
-    email: user.email,
-    role: user.role
-  };
-}
-
-export function createToken(user: User) {
+function createSignedToken(user: User, type: TokenType, maxAgeSeconds: number) {
   const header = toBase64Url(JSON.stringify({ alg: "HS256", typ: "JWT" }));
   const payload = toBase64Url(
     JSON.stringify({
       sub: user.id,
       role: user.role,
       scope: ROLE_SCOPES[user.role],
-      exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 7
+      type,
+      exp: Math.floor(Date.now() / 1000) + maxAgeSeconds
     } satisfies JwtPayload)
   );
 
@@ -83,7 +90,19 @@ export function createToken(user: User) {
   return `${header}.${payload}.${signature}`;
 }
 
-export function verifyToken(token: string) {
+export function createAccessToken(user: User) {
+  return createSignedToken(user, "access", ACCESS_TOKEN_MAX_AGE_SECONDS);
+}
+
+export function createRefreshToken(user: User) {
+  return createSignedToken(user, "refresh", REFRESH_TOKEN_MAX_AGE_SECONDS);
+}
+
+export function createCsrfToken() {
+  return randomBytes(24).toString("base64url");
+}
+
+export function verifyToken(token: string, expectedType?: TokenType) {
   const [header, payload, signature] = token.split(".");
   if (!header || !payload || !signature) {
     throw new DomainError("Token invalido.");
@@ -103,7 +122,35 @@ export function verifyToken(token: string) {
     throw new DomainError("Token expirado.");
   }
 
+  if (expectedType && parsed.type !== expectedType) {
+    throw new DomainError("Token invalido.");
+  }
+
   return parsed;
+}
+
+export function serializeUser(user: User) {
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    role: user.role
+  };
+}
+
+export function getCookies(request: IncomingMessage) {
+  const cookieHeader = request.headers.cookie;
+  if (!cookieHeader) {
+    return new Map<string, string>();
+  }
+
+  return new Map(
+    cookieHeader
+      .split(";")
+      .map((cookie) => cookie.trim().split("="))
+      .filter((parts) => parts[0])
+      .map(([name, ...rest]) => [name, rest.join("=")])
+  );
 }
 
 export function getBearerToken(request: IncomingMessage) {
@@ -120,13 +167,26 @@ export function getBearerToken(request: IncomingMessage) {
   return value;
 }
 
+export function getAuthToken(request: IncomingMessage) {
+  const cookies = getCookies(request);
+  return getBearerToken(request) ?? cookies.get(AUTH_COOKIE_NAME) ?? null;
+}
+
+export function getRefreshAuthToken(request: IncomingMessage) {
+  return getCookies(request).get(REFRESH_COOKIE_NAME) ?? null;
+}
+
+export function getCsrfTokenFromCookie(request: IncomingMessage) {
+  return getCookies(request).get(CSRF_COOKIE_NAME) ?? null;
+}
+
 export function requireAuth(data: AppData, request: IncomingMessage, requiredScopes: string[]) {
-  const token = getBearerToken(request);
+  const token = getAuthToken(request);
   if (!token) {
     throw new DomainError("Usuario nao autenticado.");
   }
 
-  const payload = verifyToken(token);
+  const payload = verifyToken(token, "access");
   const actor = data.users.find((user) => user.id === payload.sub);
 
   if (!actor) {
@@ -141,14 +201,30 @@ export function requireAuth(data: AppData, request: IncomingMessage, requiredSco
   return actor;
 }
 
+export function requireRefreshUser(data: AppData, request: IncomingMessage) {
+  const token = getRefreshAuthToken(request);
+  if (!token) {
+    throw new DomainError("Usuario nao autenticado.");
+  }
+
+  const payload = verifyToken(token, "refresh");
+  const actor = data.users.find((user) => user.id === payload.sub);
+
+  if (!actor) {
+    throw new DomainError("Usuario nao autenticado.");
+  }
+
+  return actor;
+}
+
 export function hasAnyScope(request: IncomingMessage, scopes: string[]) {
-  const token = getBearerToken(request);
+  const token = getAuthToken(request);
   if (!token) {
     return false;
   }
 
   try {
-    const payload = verifyToken(token);
+    const payload = verifyToken(token, "access");
     return scopes.some((scope) => payload.scope.includes(scope));
   } catch {
     return false;
