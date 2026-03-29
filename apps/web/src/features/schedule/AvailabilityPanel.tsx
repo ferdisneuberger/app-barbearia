@@ -71,8 +71,8 @@ export function AvailabilityPanel(props: Props) {
               {slot.reserved
                 ? "Reservado"
                 : slot.enabled
-                  ? "Disponivel"
-                  : "Indisponivel"}
+                  ? "Disponível"
+                  : "Indisponível"}
             </small>
           </button>
         ))}

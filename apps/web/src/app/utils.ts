@@ -28,3 +28,13 @@ export function getTodayInSaoPaulo() {
 export function getCurrentMonthInSaoPaulo() {
   return getTodayInSaoPaulo().slice(0, 7);
 }
+
+export function getFirstDayOfCurrentMonthInSaoPaulo() {
+  return `${getCurrentMonthInSaoPaulo()}-01`;
+}
+
+export function getLastDayOfCurrentMonthInSaoPaulo() {
+  const [year, month] = getCurrentMonthInSaoPaulo().split("-").map(Number);
+  const lastDay = new Date(year, month, 0).getDate();
+  return `${year}-${String(month).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+}

@@ -6,6 +6,7 @@ import {
   completeAppointment,
   createAppointment,
   deleteAppointment,
+  listAvailabilityMonth,
   listBookableAvailability,
   listBookableAvailabilityMonth,
   listAvailability,
@@ -14,17 +15,25 @@ import {
   updateAppointment
 } from "../core/booking.ts";
 import {
+  createAdminByAdmin,
   createBarberByAdmin,
   createClientByAdmin,
   createPublicClient,
   createServiceByAdmin,
+  deleteAdminByAdmin,
+  deleteBarberByAdmin,
+  deleteClientByAdmin,
+  deleteServiceByAdmin,
+  updateBusinessRulesByAdmin,
   updateServiceByAdmin
 } from "../core/admin.ts";
 import {
   filterAppointments,
+  serializeAdmins,
   serializeBarbers,
   serializeClients
 } from "../core/queries.ts";
+import { logInfo } from "./logger.ts";
 import { findUserByCredentials, loadAppData, mutateAppData } from "../infra/mongo.ts";
 
 const MISSING_BARBER_AND_DATE_MESSAGE = "barberId e date sao obrigatorios.";
@@ -55,6 +64,7 @@ export function healthController(_request: Request, response: Response) {
 
 export async function loginController(request: Request, response: Response) {
   const body = request.body as { email?: string; password?: string };
+  logInfo(`[auth.login] email=${body.email ?? ""}`);
   const user = await findUserByCredentials(body.email ?? "", body.password ?? "");
 
   if (!user) {
@@ -91,12 +101,15 @@ export async function meController(request: Request, response: Response) {
 
 export async function bootstrapController(request: Request, response: Response) {
   const data = await loadAppData();
-  requireAuth(data, request, ["bootstrap:read"]);
+  const actor = requireAuth(data, request, ["bootstrap:read"]);
+  logInfo(`[bootstrap] actor=${actor.email} role=${actor.role}`);
 
   response.status(200).json({
     services: data.services,
+    admins: serializeAdmins(data),
     barbers: serializeBarbers(data),
-    clients: serializeClients(data)
+    clients: serializeClients(data),
+    businessRules: data.businessRules
   });
 }
 
@@ -107,6 +120,9 @@ export async function listAppointmentsController(request: Request, response: Res
     "appointments:read:barber",
     "appointments:read:any"
   ]);
+  logInfo(
+    `[appointments.list] actor=${actor.email} role=${actor.role} date=${getQueryValue(request.query.date) ?? ""} barberId=${getQueryValue(request.query.barberId) ?? ""} clientId=${getQueryValue(request.query.clientId) ?? ""}`
+  );
 
   response.status(200).json(
     filterAppointments(data, actor, {
@@ -119,7 +135,7 @@ export async function listAppointmentsController(request: Request, response: Res
 
 export async function listAvailabilityController(request: Request, response: Response) {
   const data = await loadAppData();
-  requireAuth(data, request, ["availability:read"]);
+  const actor = requireAuth(data, request, ["availability:read"]);
 
   const barberId = getQueryValue(request.query.barberId);
   const date = getQueryValue(request.query.date);
@@ -128,6 +144,8 @@ export async function listAvailabilityController(request: Request, response: Res
     response.status(400).json({ message: MISSING_BARBER_AND_DATE_MESSAGE });
     return;
   }
+
+  logInfo(`[availability.day] actor=${actor.email} barberId=${barberId} date=${date}`);
 
   response.status(200).json(listAvailability(data, barberId, date));
 }
@@ -149,7 +167,7 @@ export async function financialSummaryController(request: Request, response: Res
 
 export async function listBookableAvailabilityController(request: Request, response: Response) {
   const data = await loadAppData();
-  requireAuth(data, request, ["availability:read"]);
+  const actor = requireAuth(data, request, ["availability:read"]);
 
   const barberId = getQueryValue(request.query.barberId);
   const date = getQueryValue(request.query.date);
@@ -159,12 +177,14 @@ export async function listBookableAvailabilityController(request: Request, respo
     return;
   }
 
+  logInfo(`[availability.booking.day] actor=${actor.email} barberId=${barberId} date=${date}`);
+
   response.status(200).json(listBookableAvailability(data, barberId, date, getCurrentDate()));
 }
 
 export async function listBookableAvailabilityMonthController(request: Request, response: Response) {
   const data = await loadAppData();
-  requireAuth(data, request, ["availability:read"]);
+  const actor = requireAuth(data, request, ["availability:read"]);
 
   const barberId = getQueryValue(request.query.barberId);
   const month = getQueryValue(request.query.month);
@@ -174,7 +194,26 @@ export async function listBookableAvailabilityMonthController(request: Request, 
     return;
   }
 
+  logInfo(`[availability.booking.month] actor=${actor.email} barberId=${barberId} month=${month}`);
+
   response.status(200).json(listBookableAvailabilityMonth(data, barberId, month, getCurrentDate()));
+}
+
+export async function listAvailabilityMonthController(request: Request, response: Response) {
+  const data = await loadAppData();
+  const actor = requireAuth(data, request, ["availability:read"]);
+
+  const barberId = getQueryValue(request.query.barberId);
+  const month = getQueryValue(request.query.month);
+
+  if (!barberId || !month) {
+    response.status(400).json({ message: "barberId e month sao obrigatorios." });
+    return;
+  }
+
+  logInfo(`[availability.month] actor=${actor.email} barberId=${barberId} month=${month}`);
+
+  response.status(200).json(listAvailabilityMonth(data, barberId, month));
 }
 
 export async function createAppointmentController(request: Request, response: Response) {
@@ -190,6 +229,9 @@ export async function createAppointmentController(request: Request, response: Re
       "appointments:create:self",
       "appointments:create:any"
     ]);
+    logInfo(
+      `[appointments.create] actor=${actor.email} role=${actor.role} clientId=${body.clientId} barberId=${body.barberId} serviceId=${body.serviceId} date=${body.date} time=${body.time}`
+    );
 
     return createAppointment(data, {
       actor,
@@ -212,6 +254,9 @@ export async function cancelAppointmentController(request: Request, response: Re
       "appointments:update:barber",
       "appointments:update:any"
     ]);
+    logInfo(
+      `[appointments.cancel] actor=${actor.email} role=${actor.role} appointmentId=${getRouteParam(request.params.appointmentId)}`
+    );
 
     return cancelAppointment(data, {
       actor,
@@ -226,6 +271,9 @@ export async function cancelAppointmentController(request: Request, response: Re
 export async function completeAppointmentController(request: Request, response: Response) {
   const result = await mutateAppData((data) => {
     const actor = requireAuth(data, request, ["appointments:complete"]);
+    logInfo(
+      `[appointments.complete] actor=${actor.email} role=${actor.role} appointmentId=${getRouteParam(request.params.appointmentId)}`
+    );
     return completeAppointment(data, {
       actor,
       appointmentId: getRouteParam(request.params.appointmentId),
@@ -239,6 +287,9 @@ export async function completeAppointmentController(request: Request, response: 
 export async function payAppointmentController(request: Request, response: Response) {
   const result = await mutateAppData((data) => {
     const actor = requireAuth(data, request, ["appointments:pay"]);
+    logInfo(
+      `[appointments.pay] actor=${actor.email} role=${actor.role} appointmentId=${getRouteParam(request.params.appointmentId)}`
+    );
     return registerPayment(data, {
       actor,
       appointmentId: getRouteParam(request.params.appointmentId),
@@ -260,6 +311,9 @@ export async function updateAppointmentController(request: Request, response: Re
       "appointments:update:barber",
       "appointments:update:any"
     ]);
+    logInfo(
+      `[appointments.update] actor=${actor.email} role=${actor.role} appointmentId=${getRouteParam(request.params.appointmentId)} serviceId=${body.serviceId ?? ""} date=${body.date ?? ""} time=${body.time ?? ""}`
+    );
 
     return updateAppointment(data, {
       actor,
@@ -277,6 +331,9 @@ export async function updateAppointmentController(request: Request, response: Re
 export async function deleteAppointmentController(request: Request, response: Response) {
   const removed = await mutateAppData((data) => {
     const actor = requireAuth(data, request, ["appointments:delete:any"]);
+    logInfo(
+      `[appointments.delete] actor=${actor.email} role=${actor.role} appointmentId=${getRouteParam(request.params.appointmentId)}`
+    );
     return deleteAppointment(data, {
       actor,
       appointmentId: getRouteParam(request.params.appointmentId),
@@ -299,6 +356,9 @@ export async function updateAvailabilityController(request: Request, response: R
       "availability:update:self",
       "availability:update:any"
     ]);
+    logInfo(
+      `[availability.update] actor=${actor.email} role=${actor.role} barberId=${body.barberId} date=${body.date} time=${body.time} enabled=${String(body.enabled)}`
+    );
 
     return toggleAvailability(data, {
       actor,
@@ -313,7 +373,12 @@ export async function updateAvailabilityController(request: Request, response: R
 }
 
 export async function createServiceController(request: Request, response: Response) {
-  const body = request.body as { name: string; priceInCents: number };
+  const body = request.body as {
+    name: string;
+    priceInCents: number;
+    assignToAllBarbers?: boolean;
+    barberIds?: string[];
+  };
   const service = await mutateAppData((data) => {
     const actor = requireAuth(data, request, ["services:write"]);
     return createServiceByAdmin(data, actor, body);
@@ -326,12 +391,23 @@ export async function updateServiceController(request: Request, response: Respon
     name?: string;
     priceInCents?: number;
     active?: boolean;
+    assignToAllBarbers?: boolean;
+    barberIds?: string[];
   };
   const service = await mutateAppData((data) => {
     const actor = requireAuth(data, request, ["services:write"]);
     return updateServiceByAdmin(data, actor, getRouteParam(request.params.serviceId), body);
   });
   response.status(200).json(service);
+}
+
+export async function deleteServiceController(request: Request, response: Response) {
+  await mutateAppData((data) => {
+    const actor = requireAuth(data, request, ["services:write"]);
+    deleteServiceByAdmin(data, actor, getRouteParam(request.params.serviceId));
+  });
+
+  response.status(204).end();
 }
 
 export async function createClientController(request: Request, response: Response) {
@@ -341,6 +417,15 @@ export async function createClientController(request: Request, response: Respons
     return createClientByAdmin(data, actor, body);
   });
   response.status(201).json(client);
+}
+
+export async function deleteClientController(request: Request, response: Response) {
+  await mutateAppData((data) => {
+    const actor = requireAuth(data, request, ["clients:write"]);
+    deleteClientByAdmin(data, actor, getRouteParam(request.params.clientId));
+  });
+
+  response.status(204).end();
 }
 
 export async function createBarberController(request: Request, response: Response) {
@@ -355,4 +440,48 @@ export async function createBarberController(request: Request, response: Respons
     return createBarberByAdmin(data, actor, body);
   });
   response.status(201).json(barber);
+}
+
+export async function deleteBarberController(request: Request, response: Response) {
+  await mutateAppData((data) => {
+    const actor = requireAuth(data, request, ["barbers:write"]);
+    deleteBarberByAdmin(data, actor, getRouteParam(request.params.barberId));
+  });
+
+  response.status(204).end();
+}
+
+export async function createAdminController(request: Request, response: Response) {
+  const body = request.body as { name: string; email: string; password: string };
+  const admin = await mutateAppData((data) => {
+    const actor = requireAuth(data, request, ["admin:manage"]);
+    return createAdminByAdmin(data, actor, body);
+  });
+
+  response.status(201).json(serializeUser(admin));
+}
+
+export async function deleteAdminController(request: Request, response: Response) {
+  await mutateAppData((data) => {
+    const actor = requireAuth(data, request, ["admin:manage"]);
+    deleteAdminByAdmin(data, actor, getRouteParam(request.params.adminId));
+  });
+
+  response.status(204).end();
+}
+
+export async function updateBusinessRulesController(request: Request, response: Response) {
+  const body = request.body as {
+    appointmentCompletionRule?: "after_start" | "anytime";
+    barberCancellationHours?: number;
+    clientCancellationHours?: number;
+    clientBookingNoticeHours?: number;
+  };
+
+  const businessRules = await mutateAppData((data) => {
+    const actor = requireAuth(data, request, ["admin:manage"]);
+    return updateBusinessRulesByAdmin(data, actor, body);
+  });
+
+  response.status(200).json(businessRules);
 }

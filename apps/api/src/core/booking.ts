@@ -1,8 +1,5 @@
 import {
   APPOINTMENT_DURATION_MINUTES,
-  BARBER_RESCHEDULE_HOURS,
-  CLIENT_RESCHEDULE_HOURS,
-  MIN_BOOKING_NOTICE_HOURS,
   addMinutes,
   buildIso,
   diffHours,
@@ -10,6 +7,8 @@ import {
   isWithinBusinessHours,
   toBrasiliaIso
 } from "./time.ts";
+import { createId } from "./id.ts";
+import { getBusinessRules } from "./rules.ts";
 import type { AppData, Appointment, AvailabilitySlot, Role, Service, User } from "../domain/types.ts";
 
 export class DomainError extends Error {}
@@ -53,6 +52,9 @@ type AvailabilityView = {
   reserved: boolean;
   available: boolean;
 };
+
+const SHOP_SHARE_PERCENT = 30;
+const BARBER_SHARE_PERCENT = 70;
 
 function getBarberService(data: AppData, barberId: string, serviceId: string) {
   const barber = data.barbers.find((item) => item.id === barberId);
@@ -123,17 +125,23 @@ function findAvailabilitySlot(data: AppData, barberId: string, startsAt: string)
   return data.availability.find((slot) => slot.barberId === barberId && slot.startsAt === startsAt);
 }
 
-function assertAppointmentManagement(actorRole: Role, hoursUntil: number) {
+function assertAppointmentManagementWithRules(data: AppData, actorRole: Role, hoursUntil: number) {
+  const rules = getBusinessRules(data);
+
   if (actorRole === "admin") {
     return;
   }
 
-  if (actorRole === "client" && hoursUntil < CLIENT_RESCHEDULE_HOURS) {
-    throw new DomainError("Cliente precisa de no minimo 3 horas para cancelar ou remarcar.");
+  if (actorRole === "client" && hoursUntil < rules.clientCancellationHours) {
+    throw new DomainError(
+      `Cliente precisa de no minimo ${rules.clientCancellationHours} horas para cancelar ou remarcar.`
+    );
   }
 
-  if (actorRole === "barber" && hoursUntil < BARBER_RESCHEDULE_HOURS) {
-    throw new DomainError("Barbeiro precisa de no minimo 12 horas para cancelar ou remarcar.");
+  if (actorRole === "barber" && hoursUntil < rules.barberCancellationHours) {
+    throw new DomainError(
+      `Barbeiro precisa de no minimo ${rules.barberCancellationHours} horas para cancelar ou remarcar.`
+    );
   }
 }
 
@@ -168,6 +176,7 @@ function listAvailabilityEntries(
   prefix: string,
   now?: Date
 ) {
+  const rules = getBusinessRules(data);
   const slotsByStart = new Map<string, AvailabilityView>();
 
   for (const slot of data.availability) {
@@ -183,7 +192,7 @@ function listAvailabilityEntries(
     );
 
     const bookableByTime = now
-      ? diffHours(now, new Date(slot.startsAt)) >= MIN_BOOKING_NOTICE_HOURS
+      ? diffHours(now, new Date(slot.startsAt)) >= rules.clientBookingNoticeHours
       : true;
 
     const current = slotsByStart.get(slot.startsAt);
@@ -206,6 +215,7 @@ function listAvailabilityEntries(
 }
 
 export function createAppointment(data: AppData, input: CreateAppointmentInput) {
+  const rules = getBusinessRules(data);
   const startsAt = buildIso(input.date, input.time);
   const startsDate = new Date(startsAt);
 
@@ -213,8 +223,13 @@ export function createAppointment(data: AppData, input: CreateAppointmentInput) 
     throw new DomainError("Horario fora da janela global da barbearia.");
   }
 
-  if (diffHours(input.now, startsDate) < MIN_BOOKING_NOTICE_HOURS) {
-    throw new DomainError("Agendamento precisa ser realizado com no minimo 2 horas de antecedencia.");
+  if (
+    input.actor.role === "client" &&
+    diffHours(input.now, startsDate) < rules.clientBookingNoticeHours
+  ) {
+    throw new DomainError(
+      `Agendamento precisa ser realizado com no minimo ${rules.clientBookingNoticeHours} horas de antecedencia.`
+    );
   }
 
   assertServiceActive(getService(data, input.serviceId));
@@ -241,7 +256,7 @@ export function createAppointment(data: AppData, input: CreateAppointmentInput) 
   assertClientExists(data, clientId);
 
   const appointment: Appointment = {
-    id: `apt_${data.appointments.length + 1}`,
+    id: createId(),
     clientId,
     barberId: input.barberId,
     serviceId: input.serviceId,
@@ -276,7 +291,7 @@ export function updateAppointment(data: AppData, input: UpdateAppointmentInput) 
   const isServiceChange = Boolean(input.serviceId && input.serviceId !== appointment.serviceId);
 
   if (isReschedule) {
-    assertAppointmentManagement(input.actor.role, hoursUntil);
+    assertAppointmentManagementWithRules(data, input.actor.role, hoursUntil);
   }
 
   if (input.serviceId) {
@@ -339,7 +354,7 @@ export function cancelAppointment(data: AppData, input: ChangeAppointmentStatusI
   assertAppointmentOwnership(data, input.actor, appointment);
   assertAppointmentIsConfirmed(appointment, "cancelar");
   const hoursUntil = diffHours(input.now, new Date(appointment.startsAt));
-  assertAppointmentManagement(input.actor.role, hoursUntil);
+  assertAppointmentManagementWithRules(data, input.actor.role, hoursUntil);
 
   appointment.status = "cancelled";
   appointment.paid = false;
@@ -361,7 +376,10 @@ export function completeAppointment(data: AppData, input: ChangeAppointmentStatu
   assertAppointmentOwnership(data, input.actor, appointment);
   assertAppointmentIsConfirmed(appointment, "concluir");
 
-  if (input.now < new Date(appointment.startsAt)) {
+  if (
+    getBusinessRules(data).appointmentCompletionRule === "after_start" &&
+    input.now < new Date(appointment.startsAt)
+  ) {
     throw new DomainError("Atendimento so pode ser concluido apos o inicio do horario agendado.");
   }
 
@@ -462,6 +480,19 @@ export function listBookableAvailabilityMonth(
   now: Date
 ) {
   const availability = listAvailabilityEntries(data, barberId, month, now);
+  return summarizeAvailabilityByDay(availability);
+}
+
+export function listAvailabilityMonth(
+  data: AppData,
+  barberId: string,
+  month: string
+) {
+  const availability = listAvailabilityEntries(data, barberId, month);
+  return summarizeAvailabilityByDay(availability);
+}
+
+function summarizeAvailabilityByDay(availability: AvailabilityView[]) {
   const days = new Map<string, number>();
 
   for (const slot of availability) {
@@ -480,26 +511,127 @@ export function buildFinancialSummary(data: AppData, startDate: string, endDate:
     const day = item.startsAt.slice(0, 10);
     return day >= startDate && day <= endDate && item.status !== "cancelled";
   });
+  const entries = validAppointments
+    .map((appointment) => {
+      const service = getService(data, appointment.serviceId);
+      const barber = data.barbers.find((item) => item.id === appointment.barberId);
+      const barberUser = data.users.find((item) => item.id === barber?.userId);
+      const client = data.clients.find((item) => item.id === appointment.clientId);
+      const clientUser = data.users.find((item) => item.id === client?.userId);
+      const gross = service.priceInCents;
+      const shop = Math.round((gross * SHOP_SHARE_PERCENT) / 100);
+      const barberShare = gross - shop;
 
-  const predicted = validAppointments.reduce((sum, appointment) => {
-    const service = getService(data, appointment.serviceId);
-    return sum + service.priceInCents;
-  }, 0);
+      return {
+        appointmentId: appointment.id,
+        startsAt: appointment.startsAt,
+        paidAt: appointment.paidAt,
+        status: appointment.status,
+        paid: appointment.paid,
+        clientName: clientUser?.name ?? "Cliente",
+        barberId: appointment.barberId,
+        barberName: barberUser?.name ?? "Barbeiro",
+        serviceName: service.name,
+        grossInCents: gross,
+        shopInCents: shop,
+        barberInCents: barberShare
+      };
+    })
+    .sort((left, right) => left.startsAt.localeCompare(right.startsAt));
 
-  const received = validAppointments.reduce((sum, appointment) => {
-    if (!appointment.paid) {
-      return sum;
-    }
+  const grossPredicted = entries.reduce((sum, entry) => sum + entry.grossInCents, 0);
+  const grossReceived = entries.reduce(
+    (sum, entry) => (entry.paid ? sum + entry.grossInCents : sum),
+    0
+  );
+  const shopPredicted = entries.reduce((sum, entry) => sum + entry.shopInCents, 0);
+  const shopReceived = entries.reduce(
+    (sum, entry) => (entry.paid ? sum + entry.shopInCents : sum),
+    0
+  );
+  const barberPredicted = entries.reduce((sum, entry) => sum + entry.barberInCents, 0);
+  const barberReceived = entries.reduce(
+    (sum, entry) => (entry.paid ? sum + entry.barberInCents : sum),
+    0
+  );
+  const paidAppointments = entries.filter((entry) => entry.paid).length;
+  const pendingAppointments = entries.filter((entry) => !entry.paid).length;
 
-    const service = getService(data, appointment.serviceId);
-    return sum + service.priceInCents;
-  }, 0);
+  const byBarber = Array.from(
+    entries.reduce((map, entry) => {
+      const current = map.get(entry.barberId) ?? {
+        barberId: entry.barberId,
+        barberName: entry.barberName,
+        appointments: 0,
+        paidAppointments: 0,
+        pendingAppointments: 0,
+        grossPredictedInCents: 0,
+        grossReceivedInCents: 0,
+        shopPredictedInCents: 0,
+        shopReceivedInCents: 0,
+        barberPredictedInCents: 0,
+        barberReceivedInCents: 0
+      };
+
+      current.appointments += 1;
+      current.paidAppointments += entry.paid ? 1 : 0;
+      current.pendingAppointments += entry.paid ? 0 : 1;
+      current.grossPredictedInCents += entry.grossInCents;
+      current.grossReceivedInCents += entry.paid ? entry.grossInCents : 0;
+      current.shopPredictedInCents += entry.shopInCents;
+      current.shopReceivedInCents += entry.paid ? entry.shopInCents : 0;
+      current.barberPredictedInCents += entry.barberInCents;
+      current.barberReceivedInCents += entry.paid ? entry.barberInCents : 0;
+
+      map.set(entry.barberId, current);
+      return map;
+    }, new Map<string, {
+      barberId: string;
+      barberName: string;
+      appointments: number;
+      paidAppointments: number;
+      pendingAppointments: number;
+      grossPredictedInCents: number;
+      grossReceivedInCents: number;
+      shopPredictedInCents: number;
+      shopReceivedInCents: number;
+      barberPredictedInCents: number;
+      barberReceivedInCents: number;
+    }>())
+  )
+    .map(([, item]) => ({
+      ...item,
+      grossPredictedLabel: formatCurrencyFromCents(item.grossPredictedInCents),
+      grossReceivedLabel: formatCurrencyFromCents(item.grossReceivedInCents),
+      shopPredictedLabel: formatCurrencyFromCents(item.shopPredictedInCents),
+      shopReceivedLabel: formatCurrencyFromCents(item.shopReceivedInCents),
+      barberPredictedLabel: formatCurrencyFromCents(item.barberPredictedInCents),
+      barberReceivedLabel: formatCurrencyFromCents(item.barberReceivedInCents)
+    }))
+    .sort((left, right) => right.grossReceivedInCents - left.grossReceivedInCents);
 
   return {
-    appointments: validAppointments.length,
-    predictedInCents: predicted,
-    predictedLabel: formatCurrencyFromCents(predicted),
-    receivedInCents: received,
-    receivedLabel: formatCurrencyFromCents(received)
+    appointments: entries.length,
+    paidAppointments,
+    pendingAppointments,
+    grossPredictedInCents: grossPredicted,
+    grossPredictedLabel: formatCurrencyFromCents(grossPredicted),
+    grossReceivedInCents: grossReceived,
+    grossReceivedLabel: formatCurrencyFromCents(grossReceived),
+    shopPredictedInCents: shopPredicted,
+    shopPredictedLabel: formatCurrencyFromCents(shopPredicted),
+    shopReceivedInCents: shopReceived,
+    shopReceivedLabel: formatCurrencyFromCents(shopReceived),
+    barberPredictedInCents: barberPredicted,
+    barberPredictedLabel: formatCurrencyFromCents(barberPredicted),
+    barberReceivedInCents: barberReceived,
+    barberReceivedLabel: formatCurrencyFromCents(barberReceived),
+    byBarber,
+    entries: entries.map((entry) => ({
+      ...entry,
+      grossLabel: formatCurrencyFromCents(entry.grossInCents),
+      shopLabel: formatCurrencyFromCents(entry.shopInCents),
+      barberLabel: formatCurrencyFromCents(entry.barberInCents)
+    }))
   };
 }

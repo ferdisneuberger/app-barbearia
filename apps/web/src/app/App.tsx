@@ -1,4 +1,5 @@
 import { AppHeader } from "../components/AppHeader";
+import { FinancePanel } from "../features/dashboard/FinancePanel";
 import { LoginCard } from "../components/LoginCard";
 import { RegisterCard } from "../components/RegisterCard";
 import { AdminPanel } from "../features/dashboard/AdminPanel";
@@ -34,11 +35,35 @@ function NavTabs(props: NavTabsProps) {
   );
 }
 
+type NavSelectProps = Readonly<{
+  items: readonly NavTabItem[];
+  active: string;
+  label: string;
+  onChange: (id: string) => void;
+}>;
+
+function NavSelect(props: NavSelectProps) {
+  return (
+    <div className="panel-head nav-select-wrap">
+      <label className="compact-field">
+        <span>{props.label}</span>
+        <select value={props.active} onChange={(event) => props.onChange(event.target.value)}>
+          {props.items.map((item) => (
+            <option key={item.id} value={item.id}>
+              {item.label}
+            </option>
+          ))}
+        </select>
+      </label>
+    </div>
+  );
+}
+
 function LoadingScreen() {
   return (
     <main className="shell">
       <section className="login-card">
-        <h1>Validando sessao...</h1>
+        <h1>Validando sessão...</h1>
       </section>
     </main>
   );
@@ -100,14 +125,20 @@ function AuthScreen(props: Readonly<{ app: BarbershopApp }>) {
 function renderRoleTabs(app: BarbershopApp) {
   if (app.user?.role === "admin") {
     return (
-      <NavTabs
+      <NavSelect
         items={[
-          { id: "agenda", label: "Agenda" },
+          { id: "home", label: "Agenda" },
+          { id: "agendamento", label: "Novo agendamento" },
           { id: "administrativo", label: "Administrativo" },
           { id: "financeiro", label: "Financeiro" }
         ]}
+        label="Página"
         active={app.adminView}
-        onChange={(value) => app.setAdminView(value as "agenda" | "administrativo" | "financeiro")}
+        onChange={(value) =>
+          app.handleAdminViewChange(
+            value as "home" | "agendamento" | "administrativo" | "financeiro"
+          )
+        }
       />
     );
   }
@@ -128,60 +159,79 @@ function renderRoleTabs(app: BarbershopApp) {
   return null;
 }
 
-function renderAdminAgenda(app: BarbershopApp) {
+function renderAdminHome(app: BarbershopApp) {
   return (
-    <>
-      <BookingPanel
-        role={app.user!.role}
-        clients={app.clients}
-        barbers={app.barbers}
-        services={app.barberServices}
-        selectedDate={app.selectedDate}
-        selectedClientId={app.selectedClientId}
-        selectedBarberId={app.selectedBarberId}
-        selectedServiceId={app.selectedServiceId}
-        selectedTime={app.selectedTime}
-        availableTimes={app.availableTimes}
-        bookingMonth={app.bookingMonth}
-        monthAvailability={app.bookingMonthAvailability}
-        message={app.message}
-        onBookingMonthChange={app.handleBookingMonthChange}
-        onDateChange={app.setSelectedDate}
-        onClientChange={app.setSelectedClientId}
-        onBarberChange={app.setSelectedBarberId}
-        onServiceChange={app.setSelectedServiceId}
-        onTimeChange={app.setSelectedTime}
-        onSubmit={app.handleCreateAppointment}
-      />
-
       <AppointmentsPanel
         role={app.user!.role}
         appointments={app.filteredAppointments}
+        selectedDate={app.selectedDate}
+        adminScheduleScope={app.adminScheduleScope}
+        adminMonth={app.adminMonth}
         search={app.adminSearch}
         barberFilter={app.adminBarberFilter}
         serviceFilter={app.adminServiceFilter}
         statusFilter={app.appointmentStatusFilter}
         barbers={app.barbers}
         services={app.services}
+        onDateChange={app.setSelectedDate}
+        onAdminScheduleScopeChange={app.setAdminScheduleScope}
+        onAdminMonthChange={app.setAdminMonth}
         onSearchChange={app.setAdminSearch}
         onBarberFilterChange={app.setAdminBarberFilter}
-        onServiceFilterChange={app.setAdminServiceFilter}
-        onStatusFilterChange={app.setAppointmentStatusFilter}
-        menuAppointmentId={app.menuAppointmentId}
-        onMenuToggle={(appointmentId) =>
-          app.setMenuAppointmentId((current) => (current === appointmentId ? null : appointmentId))
-        }
-        onComplete={app.handleComplete}
-        onPay={app.handlePay}
-        onManage={app.openActionModal}
-      />
-    </>
+      onServiceFilterChange={app.setAdminServiceFilter}
+      onStatusFilterChange={app.setAppointmentStatusFilter}
+      businessRules={app.businessRules}
+      menuAppointmentId={app.menuAppointmentId}
+      onMenuToggle={(appointmentId) =>
+        app.setMenuAppointmentId((current) => (current === appointmentId ? null : appointmentId))
+      }
+      onComplete={app.handleComplete}
+      onPay={app.handlePay}
+      onManage={app.openActionModal}
+    />
+  );
+}
+
+function renderAdminBooking(app: BarbershopApp) {
+  return (
+    <BookingPanel
+      role={app.user!.role}
+      clients={app.clients}
+      filteredClients={app.filteredBookingClients}
+      barbers={app.barbers}
+      filteredBarbers={app.filteredBookingBarbersByService}
+      services={app.activeServices}
+      selectedDate={app.selectedDate}
+      selectedClientId={app.selectedClientId}
+      clientSearch={app.bookingClientSearch}
+      selectedBarberId={app.selectedBarberId}
+      barberSearch={app.bookingBarberSearch}
+      selectedServiceId={app.selectedServiceId}
+      selectedTime={app.selectedTime}
+      availableTimes={app.availableTimes}
+      bookingMonth={app.bookingMonth}
+      monthAvailability={app.bookingMonthAvailability}
+      message={app.message}
+      onBookingMonthChange={app.handleBookingMonthChange}
+      onDateChange={app.setSelectedDate}
+      onClientChange={app.handleAdminBookingClientChange}
+      onClientSearchChange={app.handleBookingClientSearchChange}
+      onBarberChange={app.handleBookingBarberChange}
+      onBarberSearchChange={app.handleBookingBarberSearchChange}
+      onServiceChange={app.handleAdminBookingServiceChange}
+      onTimeChange={app.setSelectedTime}
+      onSubmit={app.handleCreateAppointment}
+    />
   );
 }
 
 function renderAdminContent(app: BarbershopApp) {
-  if (app.adminView === "agenda") {
-    return renderAdminAgenda(app);
+  if (app.adminView === "home") {
+    return renderAdminHome(app);
+  }
+
+  if (app.adminView === "agendamento") {
+    return renderAdminBooking(app);
   }
 
   if (app.adminView === "administrativo") {
@@ -190,24 +240,61 @@ function renderAdminContent(app: BarbershopApp) {
         services={app.services}
         clients={app.clients}
         barbers={app.barbers}
+        admins={app.admins}
         financialSummary={null}
+        activeSection={app.adminManagementView}
         serviceName={app.serviceName}
         servicePrice={app.servicePrice}
+        editingServiceId={app.editingServiceId}
+        serviceAssignmentMode={app.serviceAssignmentMode}
+        serviceBarberIds={app.serviceBarberIds}
         clientName={app.clientName}
         clientEmail={app.clientEmail}
         clientPassword={app.clientPassword}
         barberName={app.barberName}
         barberEmail={app.barberEmail}
         barberPassword={app.barberPassword}
+        adminName={app.adminName}
+        adminEmail={app.adminEmail}
+        adminPassword={app.adminPassword}
         barberServiceIds={app.barberServiceIds}
+        appointmentCompletionRule={app.appointmentCompletionRule}
+        barberCancellationHours={app.barberCancellationHours}
+        clientCancellationHours={app.clientCancellationHours}
+        clientBookingNoticeHours={app.clientBookingNoticeHours}
+        onSectionChange={app.setAdminManagementView}
         onServiceNameChange={app.setServiceName}
-        onServicePriceChange={app.setServicePrice}
+        onServicePriceChange={app.handleServicePriceChange}
+        onToggleAllServiceBarbers={(checked) => {
+          app.setServiceAssignmentMode(checked ? "all" : "selected");
+          app.setServiceBarberIds(checked ? app.barbers.map((barber) => barber.id) : []);
+        }}
+        onServiceBarbersChange={(barberId, checked) =>
+          app.setServiceBarberIds((current) => {
+            const next = checked
+              ? [...current, barberId]
+              : current.filter((item) => item !== barberId);
+
+            app.setServiceAssignmentMode(
+              next.length === app.barbers.length && app.barbers.length > 0 ? "all" : "selected"
+            );
+
+            return next;
+          })
+        }
         onClientNameChange={app.setClientName}
         onClientEmailChange={app.setClientEmail}
         onClientPasswordChange={app.setClientPassword}
         onBarberNameChange={app.setBarberName}
         onBarberEmailChange={app.setBarberEmail}
         onBarberPasswordChange={app.setBarberPassword}
+        onAdminNameChange={app.setAdminName}
+        onAdminEmailChange={app.setAdminEmail}
+        onAdminPasswordChange={app.setAdminPassword}
+        onAppointmentCompletionRuleChange={app.setAppointmentCompletionRule}
+        onBarberCancellationHoursChange={app.setBarberCancellationHours}
+        onClientCancellationHoursChange={app.setClientCancellationHours}
+        onClientBookingNoticeHoursChange={app.setClientBookingNoticeHours}
         onBarberServicesChange={(serviceId, checked) =>
           app.setBarberServiceIds((current) =>
             checked ? [...current, serviceId] : current.filter((item) => item !== serviceId)
@@ -216,22 +303,27 @@ function renderAdminContent(app: BarbershopApp) {
         onCreateService={app.handleCreateService}
         onCreateClient={app.handleCreateClient}
         onCreateBarber={app.handleCreateBarber}
-        onDeactivateService={app.handleDeactivateService}
+        onCreateAdmin={app.handleCreateAdmin}
+        onEditService={app.handleEditService}
+        onCancelServiceEdit={app.resetServiceForm}
+        onDeleteService={app.handleDeleteService}
+        onDeleteClient={app.handleDeleteClient}
+        onDeleteBarber={app.handleDeleteBarber}
+        onDeleteAdmin={app.handleDeleteAdmin}
+        onToggleServiceActive={app.handleToggleServiceActive}
+        onSaveBusinessRules={app.handleSaveBusinessRules}
       />
     );
   }
 
-  if (!app.financialSummary) {
-    return null;
-  }
-
   return (
-    <article className="panel accent">
-      <h2>Financeiro do dia</h2>
-      <p>Total de atendimentos: {app.financialSummary.appointments}</p>
-      <p>Receita prevista: {app.financialSummary.predictedLabel}</p>
-      <p>Recebido: {app.financialSummary.receivedLabel}</p>
-    </article>
+    <FinancePanel
+      startDate={app.financialStartDate}
+      endDate={app.financialEndDate}
+      summary={app.financialSummary}
+      onStartDateChange={app.setFinancialStartDate}
+      onEndDateChange={app.setFinancialEndDate}
+    />
   );
 }
 
@@ -256,9 +348,12 @@ function renderBarberContent(app: BarbershopApp) {
       role={app.user!.role}
       appointments={app.filteredAppointments}
       selectedDate={app.selectedDate}
+      search={app.adminSearch}
       statusFilter={app.appointmentStatusFilter}
       onDateChange={app.setSelectedDate}
+      onSearchChange={app.setAdminSearch}
       onStatusFilterChange={app.setAppointmentStatusFilter}
+      businessRules={app.businessRules}
       menuAppointmentId={app.menuAppointmentId}
       onMenuToggle={(appointmentId) =>
         app.setMenuAppointmentId((current) => (current === appointmentId ? null : appointmentId))
@@ -275,8 +370,11 @@ function renderClientContent(app: BarbershopApp) {
     <AppointmentsPanel
       role={app.user!.role}
       appointments={app.filteredAppointments}
+      search={app.adminSearch}
       statusFilter={app.appointmentStatusFilter}
+      onSearchChange={app.setAdminSearch}
       onStatusFilterChange={app.setAppointmentStatusFilter}
+      businessRules={app.businessRules}
       menuAppointmentId={app.menuAppointmentId}
       onMenuToggle={(appointmentId) =>
         app.setMenuAppointmentId((current) => (current === appointmentId ? null : appointmentId))
@@ -320,10 +418,12 @@ function ClientBookingModal(props: Readonly<{ app: BarbershopApp }>) {
           role={app.user!.role}
           clients={app.clients}
           barbers={app.availableBarbers}
+          filteredBarbers={app.filteredBookingBarbersByService}
           services={app.barberServices}
           selectedDate={app.selectedDate}
           selectedClientId={app.selectedClientId}
           selectedBarberId={app.selectedBarberId}
+          barberSearch={app.bookingBarberSearch}
           selectedServiceId={app.selectedServiceId}
           selectedTime={app.selectedTime}
           availableTimes={app.clientAvailableTimes}
@@ -334,6 +434,7 @@ function ClientBookingModal(props: Readonly<{ app: BarbershopApp }>) {
           onDateChange={app.setSelectedDate}
           onClientChange={app.setSelectedClientId}
           onBarberChange={app.handleBookingBarberChange}
+          onBarberSearchChange={app.handleBookingBarberSearchChange}
           onServiceChange={app.setSelectedServiceId}
           onTimeChange={app.setSelectedTime}
           onSubmit={app.handleCreateAppointment}
@@ -403,6 +504,7 @@ export function App() {
         onSave={app.handleSaveAppointmentChanges}
         onCancel={app.handleCancelAppointment}
         onDelete={app.handleDeleteAppointment}
+        clientCancellationHours={app.businessRules.clientCancellationHours}
       />
     </main>
   );

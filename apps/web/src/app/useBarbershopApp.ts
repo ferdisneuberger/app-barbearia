@@ -6,16 +6,29 @@ import type {
   Appointment,
   Availability,
   Barber,
+  BusinessRules,
   BookingDayAvailability,
   Client,
   FinancialSummary,
   Service,
   User
 } from "./types";
-import { formatTime, getCurrentMonthInSaoPaulo, getTodayInSaoPaulo } from "./utils";
+import {
+  formatTime,
+  getCurrentMonthInSaoPaulo,
+  getFirstDayOfCurrentMonthInSaoPaulo,
+  getLastDayOfCurrentMonthInSaoPaulo,
+  getTodayInSaoPaulo
+} from "./utils";
 
 const TOKEN_STORAGE_KEY = "barbearia.token";
 const USER_STORAGE_KEY = "barbearia.user";
+const DEFAULT_BUSINESS_RULES: BusinessRules = {
+  appointmentCompletionRule: "after_start",
+  barberCancellationHours: 12,
+  clientCancellationHours: 3,
+  clientBookingNoticeHours: 2
+};
 
 export function useBarbershopApp() {
   const [authScreen, setAuthScreen] = useState<"login" | "register">("login");
@@ -29,7 +42,9 @@ export function useBarbershopApp() {
   const [registerPassword, setRegisterPassword] = useState("");
   const [barbers, setBarbers] = useState<Barber[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
+  const [admins, setAdmins] = useState<User[]>([]);
   const [services, setServices] = useState<Service[]>([]);
+  const [businessRules, setBusinessRules] = useState<BusinessRules>(DEFAULT_BUSINESS_RULES);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [availability, setAvailability] = useState<Availability[]>([]);
   const [availabilityFeedback, setAvailabilityFeedback] = useState("");
@@ -38,15 +53,26 @@ export function useBarbershopApp() {
   const [message, setMessage] = useState("");
   const [selectedBarberId, setSelectedBarberId] = useState("");
   const [selectedClientId, setSelectedClientId] = useState("");
+  const [bookingClientSearch, setBookingClientSearch] = useState("");
+  const [bookingBarberSearch, setBookingBarberSearch] = useState("");
   const [selectedServiceId, setSelectedServiceId] = useState("");
   const [selectedDate, setSelectedDate] = useState(() => getTodayInSaoPaulo());
   const [selectedTime, setSelectedTime] = useState("");
   const [bookingMonth, setBookingMonth] = useState(() => getCurrentMonthInSaoPaulo());
+  const [adminScheduleScope, setAdminScheduleScope] = useState<"day" | "month">("day");
+  const [adminMonth, setAdminMonth] = useState(() => getCurrentMonthInSaoPaulo());
+  const [financialStartDate, setFinancialStartDate] = useState(() =>
+    getFirstDayOfCurrentMonthInSaoPaulo()
+  );
+  const [financialEndDate, setFinancialEndDate] = useState(() =>
+    getLastDayOfCurrentMonthInSaoPaulo()
+  );
   const [financialSummary, setFinancialSummary] = useState<FinancialSummary | null>(null);
   const [menuAppointmentId, setMenuAppointmentId] = useState<string | null>(null);
   const [actionModal, setActionModal] = useState<ActionModalState | null>(null);
   const [showBookingModal, setShowBookingModal] = useState(false);
-  const [adminView, setAdminView] = useState<"agenda" | "administrativo" | "financeiro">("agenda");
+  const [adminView, setAdminView] = useState<"home" | "agendamento" | "administrativo" | "financeiro">("home");
+  const [adminManagementView, setAdminManagementView] = useState<"services" | "clients" | "barbers" | "admins" | "rules">("services");
   const [barberView, setBarberView] = useState<"agenda" | "disponibilidade">("agenda");
   const [adminSearch, setAdminSearch] = useState("");
   const [adminBarberFilter, setAdminBarberFilter] = useState("");
@@ -55,13 +81,30 @@ export function useBarbershopApp() {
 
   const [serviceName, setServiceName] = useState("");
   const [servicePrice, setServicePrice] = useState("0");
+  const [editingServiceId, setEditingServiceId] = useState<string | null>(null);
+  const [serviceAssignmentMode, setServiceAssignmentMode] = useState<"all" | "selected">("all");
+  const [serviceBarberIds, setServiceBarberIds] = useState<string[]>([]);
   const [clientName, setClientName] = useState("");
   const [clientEmail, setClientEmail] = useState("");
   const [clientPassword, setClientPassword] = useState("");
   const [barberName, setBarberName] = useState("");
   const [barberEmail, setBarberEmail] = useState("");
   const [barberPassword, setBarberPassword] = useState("");
+  const [adminName, setAdminName] = useState("");
+  const [adminEmail, setAdminEmail] = useState("");
+  const [adminPassword, setAdminPassword] = useState("");
   const [barberServiceIds, setBarberServiceIds] = useState<string[]>([]);
+  const [appointmentCompletionRule, setAppointmentCompletionRule] =
+    useState<BusinessRules["appointmentCompletionRule"]>(DEFAULT_BUSINESS_RULES.appointmentCompletionRule);
+  const [barberCancellationHours, setBarberCancellationHours] = useState(
+    String(DEFAULT_BUSINESS_RULES.barberCancellationHours)
+  );
+  const [clientCancellationHours, setClientCancellationHours] = useState(
+    String(DEFAULT_BUSINESS_RULES.clientCancellationHours)
+  );
+  const [clientBookingNoticeHours, setClientBookingNoticeHours] = useState(
+    String(DEFAULT_BUSINESS_RULES.clientBookingNoticeHours)
+  );
   const availabilityRequestRef = useRef(0);
   const availabilityFeedbackTimeoutRef = useRef<number | null>(null);
   const bookingAvailabilityRequestRef = useRef(0);
@@ -74,6 +117,24 @@ export function useBarbershopApp() {
       .filter((slot) => slot.available)
       .map((slot) => formatTime(slot.startsAt))
       .sort((left, right) => left.localeCompare(right));
+  }
+
+  function formatCurrencyInput(value: string) {
+    const digits = value.replace(/\D/g, "");
+    const cents = Number(digits || "0");
+
+    return new Intl.NumberFormat("pt-BR", {
+      style: "currency",
+      currency: "BRL"
+    }).format(cents / 100);
+  }
+
+  function resetServiceForm() {
+    setEditingServiceId(null);
+    setServiceName("");
+    setServicePrice("0");
+    setServiceAssignmentMode("all");
+    setServiceBarberIds([]);
   }
 
   function persistSession(nextUser: User, nextToken: string) {
@@ -118,6 +179,77 @@ export function useBarbershopApp() {
     [barbers, activeServices, selectedBarberId]
   );
 
+  const filteredBookingClients = useMemo(() => {
+    const search = bookingClientSearch.trim().toLowerCase();
+
+    if (search.length === 0) {
+      return clients;
+    }
+
+    return clients.filter(
+      (client) =>
+        client.name.toLowerCase().includes(search) || client.email.toLowerCase().includes(search)
+    );
+  }, [bookingClientSearch, clients]);
+
+  const filteredBookingBarbers = useMemo(() => {
+    const search = bookingBarberSearch.trim().toLowerCase();
+
+    if (search.length === 0) {
+      return barbers;
+    }
+
+    return barbers.filter(
+      (barber) =>
+        barber.name.toLowerCase().includes(search) || barber.email.toLowerCase().includes(search)
+    );
+  }, [bookingBarberSearch, barbers]);
+
+  const filteredBookingBarbersByService = useMemo(() => {
+    const baseBarbers =
+      selectedServiceId.length === 0
+        ? filteredBookingBarbers
+        : filteredBookingBarbers.filter((barber) => barber.serviceIds.includes(selectedServiceId));
+
+    return baseBarbers;
+  }, [filteredBookingBarbers, selectedServiceId]);
+
+  function syncBookingClientSearch(clientId: string) {
+    const selectedClient = clients.find((client) => client.id === clientId);
+    setBookingClientSearch(selectedClient?.name ?? "");
+  }
+
+  function syncBookingBarberSearch(barberId: string) {
+    const selectedBarber = barbers.find((barber) => barber.id === barberId);
+    setBookingBarberSearch(selectedBarber?.name ?? "");
+  }
+
+  function resetBookingSelection(options?: { keepClient?: boolean }) {
+    if (!options?.keepClient) {
+      setSelectedClientId("");
+      setBookingClientSearch("");
+    }
+
+    setSelectedServiceId("");
+    setSelectedBarberId("");
+    setBookingBarberSearch("");
+    clearBookingAfterServiceChange();
+  }
+
+  function clearBookingAfterServiceChange() {
+    setSelectedBarberId("");
+    setBookingBarberSearch("");
+    clearBookingAfterBarberChange();
+  }
+
+  function clearBookingAfterBarberChange() {
+    setSelectedDate("");
+    setSelectedTime("");
+    setBookingAvailability([]);
+    setBookingMonthAvailability([]);
+    setBookingMonth(getCurrentMonthInSaoPaulo());
+  }
+
   const availableTimes = useMemo(
     () => resolveAvailableTimes(availability),
     [availability]
@@ -158,20 +290,19 @@ export function useBarbershopApp() {
         return -1;
       }
 
+      if (left.paid && !right.paid) {
+        return 1;
+      }
+
+      if (!left.paid && right.paid) {
+        return -1;
+      }
+
       return left.startsAt.localeCompare(right.startsAt);
     });
   }
 
   const filteredAppointments = useMemo(() => {
-    if (user?.role !== "admin") {
-      const statusFiltered =
-        appointmentStatusFilter === "all"
-          ? appointments
-          : appointments.filter((appointment) => appointment.status === appointmentStatusFilter);
-
-      return sortAppointmentsWithCancelledLast(statusFiltered);
-    }
-
     const search = adminSearch.trim().toLowerCase();
 
     const filtered = appointments.filter((appointment) => {
@@ -181,38 +312,85 @@ export function useBarbershopApp() {
         appointment.barberName.toLowerCase().includes(search) ||
         appointment.serviceName.toLowerCase().includes(search);
 
-      const matchesBarber = adminBarberFilter.length === 0 || appointment.barberId === adminBarberFilter;
-      const matchesService =
-        adminServiceFilter.length === 0 || appointment.serviceId === adminServiceFilter;
       const matchesStatus =
         appointmentStatusFilter === "all" || appointment.status === appointmentStatusFilter;
 
-      return matchesSearch && matchesBarber && matchesService && matchesStatus;
+      if (user?.role !== "admin") {
+        return matchesSearch && matchesStatus;
+      }
+
+      const matchesBarber = adminBarberFilter.length === 0 || appointment.barberId === adminBarberFilter;
+      const matchesService =
+        adminServiceFilter.length === 0 || appointment.serviceId === adminServiceFilter;
+      const matchesAdminPeriod =
+        adminScheduleScope === "month"
+          ? appointment.startsAt.startsWith(adminMonth)
+          : true;
+
+      return (
+        matchesSearch &&
+        matchesBarber &&
+        matchesService &&
+        matchesStatus &&
+        matchesAdminPeriod
+      );
     });
 
     return sortAppointmentsWithCancelledLast(filtered);
-  }, [appointments, user, adminSearch, adminBarberFilter, adminServiceFilter, appointmentStatusFilter]);
+  }, [
+    appointments,
+    user,
+    adminSearch,
+    adminBarberFilter,
+    adminServiceFilter,
+    appointmentStatusFilter,
+    adminScheduleScope,
+    adminMonth
+  ]);
 
   async function loadBootstrap() {
     const data = await api.loadBootstrap();
     const defaultBarberId =
       user?.role === "barber"
         ? data.barbers.find((barber) => barber.email === user.email)?.id ?? data.barbers[0]?.id ?? ""
-        : data.barbers[0]?.id ?? "";
+        : "";
 
     setBarbers(data.barbers);
     setClients(data.clients);
+    setAdmins(data.admins);
     setServices(data.services);
-    setSelectedBarberId((current) =>
-      data.barbers.some((barber) => barber.id === current) ? current : defaultBarberId
-    );
-    setSelectedClientId((current) =>
-      data.clients.some((client) => client.id === current) ? current : data.clients[0]?.id || ""
-    );
+    setBusinessRules(data.businessRules);
+    setAppointmentCompletionRule(data.businessRules.appointmentCompletionRule);
+    setBarberCancellationHours(String(data.businessRules.barberCancellationHours));
+    setClientCancellationHours(String(data.businessRules.clientCancellationHours));
+    setClientBookingNoticeHours(String(data.businessRules.clientBookingNoticeHours));
+    setSelectedBarberId((current) => {
+      const nextBarberId =
+        data.barbers.some((barber) => barber.id === current) ? current : defaultBarberId;
+      const selectedBarber = data.barbers.find((barber) => barber.id === nextBarberId);
+      setBookingBarberSearch(selectedBarber?.name ?? "");
+      return nextBarberId;
+    });
+    setSelectedClientId((current) => {
+      const nextClientId =
+        data.clients.some((client) => client.id === current)
+          ? current
+          : user?.role === "admin"
+            ? ""
+            : data.clients[0]?.id || "";
+      const selectedClient = data.clients.find((client) => client.id === nextClientId);
+      setBookingClientSearch(selectedClient?.name ?? "");
+      return nextClientId;
+    });
   }
 
   async function loadAppointments(activeUser: User) {
-    const date = activeUser.role === "client" ? undefined : selectedDate;
+    const date =
+      activeUser.role === "client"
+        ? undefined
+        : activeUser.role === "admin" && adminScheduleScope === "month"
+          ? undefined
+          : selectedDate;
     setAppointments(await api.loadAppointments(date));
   }
 
@@ -235,12 +413,17 @@ export function useBarbershopApp() {
   }
 
   async function loadFinancial(activeUser: User) {
-    if (activeUser.role !== "admin") {
+    if (
+      activeUser.role !== "admin" ||
+      !financialStartDate ||
+      !financialEndDate ||
+      adminView !== "financeiro"
+    ) {
       setFinancialSummary(null);
       return;
     }
 
-    setFinancialSummary(await api.loadFinancial(selectedDate));
+    setFinancialSummary(await api.loadFinancial(financialStartDate, financialEndDate));
   }
 
   async function loadBookableAvailability(barberId = selectedBarberId, date = selectedDate) {
@@ -279,12 +462,36 @@ export function useBarbershopApp() {
     return data;
   }
 
+  async function loadAdminBookingAvailabilityMonth(barberId = selectedBarberId, month = bookingMonth) {
+    const requestId = bookingMonthRequestRef.current + 1;
+    bookingMonthRequestRef.current = requestId;
+
+    if (!barberId || !month) {
+      if (bookingMonthRequestRef.current === requestId) {
+        setBookingMonthAvailability([]);
+      }
+      return [];
+    }
+
+    const data = await api.loadAvailabilityMonth(barberId, month);
+    if (bookingMonthRequestRef.current === requestId) {
+      setBookingMonthAvailability(data);
+    }
+    return data;
+  }
+
   async function refreshData(successMessage?: string) {
     if (!user) {
       return;
     }
 
-    await Promise.all([loadBootstrap(), loadAppointments(user), loadAvailability(), loadFinancial(user)]);
+    const tasks: Promise<unknown>[] = [loadBootstrap()];
+
+    if (!(user.role === "admin" && adminView === "agendamento")) {
+      tasks.push(loadAppointments(user), loadAvailability(), loadFinancial(user));
+    }
+
+    await Promise.all(tasks);
     if (successMessage) {
       setMessage(successMessage);
     }
@@ -323,19 +530,41 @@ export function useBarbershopApp() {
 
     async function syncDashboardData() {
       try {
-        await Promise.all([
-          loadBootstrap(),
-          loadAppointments(user),
-          loadAvailability(),
-          loadFinancial(user)
-        ]);
+        const tasks: Promise<unknown>[] = [loadBootstrap()];
+
+        if (!(user.role === "admin" && adminView === "agendamento")) {
+          tasks.push(loadAppointments(user), loadAvailability(), loadFinancial(user));
+        }
+
+        await Promise.all(tasks);
       } catch (error) {
         setMessage((error as Error).message);
       }
     }
 
     void syncDashboardData();
-  }, [authReady, user, token, selectedDate, selectedBarberId]);
+  }, [
+    authReady,
+    user,
+    token,
+    selectedDate,
+    selectedBarberId,
+    adminScheduleScope,
+    adminMonth,
+    adminView,
+    financialStartDate,
+    financialEndDate
+  ]);
+
+  useEffect(() => {
+    if (user?.role !== "admin") {
+      return;
+    }
+
+    if (!selectedDate.startsWith(adminMonth)) {
+      setSelectedDate(`${adminMonth}-01`);
+    }
+  }, [adminMonth, selectedDate, user]);
 
   useEffect(() => {
     if (!showBookingModal || user?.role !== "client" || !token) {
@@ -352,6 +581,38 @@ export function useBarbershopApp() {
 
     void syncBookableMonthAvailability();
   }, [showBookingModal, user, token, selectedBarberId, bookingMonth]);
+
+  useEffect(() => {
+    if (user?.role !== "admin" || adminView !== "agendamento" || !token) {
+      return;
+    }
+
+    async function syncAdminBookingMonthAvailability() {
+      try {
+        await loadAdminBookingAvailabilityMonth();
+      } catch (error) {
+        setMessage((error as Error).message);
+      }
+    }
+
+    void syncAdminBookingMonthAvailability();
+  }, [user, adminView, token, selectedBarberId, bookingMonth]);
+
+  useEffect(() => {
+    if (user?.role !== "admin" || adminView !== "agendamento" || !token) {
+      return;
+    }
+
+    async function syncAdminBookingAvailability() {
+      try {
+        await loadAvailability();
+      } catch (error) {
+        setMessage((error as Error).message);
+      }
+    }
+
+    void syncAdminBookingAvailability();
+  }, [user, adminView, token, selectedBarberId, selectedDate]);
 
   useEffect(() => {
     if (!showBookingModal || user?.role !== "client" || !token) {
@@ -421,8 +682,18 @@ export function useBarbershopApp() {
   async function handleCreateAppointment(event: FormEvent) {
     event.preventDefault();
 
+    if (user?.role === "admin" && !selectedClientId) {
+      setMessage("Selecione um cliente para criar o agendamento.");
+      return;
+    }
+
+    if (!selectedServiceId) {
+      setMessage("Selecione um serviço para criar o agendamento.");
+      return;
+    }
+
     if (!selectedDate || !selectedTime) {
-      setMessage("Selecione um dia e um horario disponivel para agendar.");
+      setMessage("Selecione um dia e um horário disponível para agendar.");
       return;
     }
 
@@ -444,9 +715,53 @@ export function useBarbershopApp() {
 
   function handleBookingBarberChange(barberId: string) {
     setSelectedBarberId(barberId);
-    setSelectedDate("");
-    setSelectedTime("");
-    setBookingAvailability([]);
+    syncBookingBarberSearch(barberId);
+    clearBookingAfterBarberChange();
+  }
+
+  function handleAdminBookingServiceChange(serviceId: string) {
+    setSelectedServiceId(serviceId);
+    clearBookingAfterServiceChange();
+  }
+
+  function handleBookingBarberSearchChange(value: string) {
+    setBookingBarberSearch(value);
+    const normalizedValue = value.trim().toLowerCase();
+    const selectedBarber = barbers.find((barber) => barber.id === selectedBarberId);
+
+    if (
+      selectedBarber &&
+      normalizedValue !== selectedBarber.name.toLowerCase() &&
+      normalizedValue !== selectedBarber.email.toLowerCase()
+    ) {
+      setSelectedBarberId("");
+      clearBookingAfterBarberChange();
+    }
+  }
+
+  function handleBookingClientSearchChange(value: string) {
+    setBookingClientSearch(value);
+    const normalizedValue = value.trim().toLowerCase();
+    const selectedClient = clients.find((client) => client.id === selectedClientId);
+
+    if (
+      selectedClient &&
+      normalizedValue !== selectedClient.name.toLowerCase() &&
+      normalizedValue !== selectedClient.email.toLowerCase()
+    ) {
+      setSelectedClientId("");
+      clearBookingAfterBarberChange();
+    }
+
+    if (value.trim().length === 0) {
+      resetBookingSelection();
+    }
+  }
+
+  function handleAdminBookingClientChange(clientId: string) {
+    setSelectedClientId(clientId);
+    syncBookingClientSearch(clientId);
+    resetBookingSelection({ keepClient: true });
   }
 
   function handleBookingMonthChange(month: string) {
@@ -463,6 +778,15 @@ export function useBarbershopApp() {
     setBookingAvailability([]);
     setMessage("");
     setShowBookingModal(true);
+  }
+
+  function handleAdminViewChange(view: "home" | "agendamento" | "administrativo" | "financeiro") {
+    setAdminView(view);
+
+    if (view === "agendamento") {
+      resetBookingSelection();
+      setMessage("");
+    }
   }
 
   async function handleToggle(slot: Availability) {
@@ -488,8 +812,8 @@ export function useBarbershopApp() {
     if (slotsToUpdate.length === 0) {
       setMessage(
         enabled
-          ? "Todos os horarios livres deste dia ja estao ativos."
-          : "Nao ha horarios livres ativos para desativar neste dia."
+          ? "Todos os horários livres deste dia já estão ativos."
+          : "Não há horários livres ativos para desativar neste dia."
       );
       return;
     }
@@ -508,8 +832,8 @@ export function useBarbershopApp() {
       await refreshData();
       showAvailabilityFeedback(
         enabled
-          ? "Todos os horarios do dia foram ativados."
-          : "Todos os horarios livres do dia foram desativados."
+          ? "Todos os horários do dia foram ativados."
+          : "Todos os horários livres do dia foram desativados."
       );
     } catch (error) {
       setMessage((error as Error).message);
@@ -588,7 +912,7 @@ export function useBarbershopApp() {
     }
 
     if (!actionModal.time) {
-      setMessage("Selecione um horario disponivel para reagendar.");
+      setMessage("Selecione um horário disponível para reagendar.");
       return;
     }
 
@@ -636,25 +960,70 @@ export function useBarbershopApp() {
     event.preventDefault();
 
     try {
-      await api.createService({
+      const payload = {
         name: serviceName,
-        priceInCents: Math.round(Number(servicePrice) * 100)
-      });
-      setServiceName("");
-      setServicePrice("0");
-      await refreshData("Servico cadastrado.");
+        priceInCents: Number(servicePrice.replace(/\D/g, "") || "0"),
+        assignToAllBarbers: serviceAssignmentMode === "all",
+        barberIds: serviceAssignmentMode === "selected" ? serviceBarberIds : undefined
+      };
+
+      if (editingServiceId) {
+        await api.updateService(editingServiceId, payload);
+        resetServiceForm();
+        await refreshData("Serviço atualizado.");
+        return;
+      }
+
+      await api.createService(payload);
+      resetServiceForm();
+      await refreshData("Serviço cadastrado.");
     } catch (error) {
       setMessage((error as Error).message);
     }
   }
 
-  async function handleDeactivateService(serviceId: string) {
+  function handleServicePriceChange(value: string) {
+    setServicePrice(value.replace(/\D/g, ""));
+  }
+
+  async function handleToggleServiceActive(serviceId: string, active: boolean) {
     try {
-      await api.updateService(serviceId, { active: false });
-      await refreshData("Servico desativado.");
+      await api.updateService(serviceId, { active });
+      await refreshData(active ? "Serviço reativado." : "Serviço desativado.");
     } catch (error) {
       setMessage((error as Error).message);
     }
+  }
+
+  async function handleDeleteService(serviceId: string) {
+    try {
+      await api.deleteService(serviceId);
+      if (editingServiceId === serviceId) {
+        resetServiceForm();
+      }
+      await refreshData("Serviço excluído.");
+    } catch (error) {
+      setMessage((error as Error).message);
+    }
+  }
+
+  function handleEditService(serviceId: string) {
+    const service = services.find((item) => item.id === serviceId);
+    if (!service) {
+      return;
+    }
+
+    const assignedBarberIds = barbers
+      .filter((barber) => barber.serviceIds.includes(serviceId))
+      .map((barber) => barber.id);
+
+    setEditingServiceId(serviceId);
+    setServiceName(service.name);
+    setServicePrice(String(service.priceInCents));
+    setServiceAssignmentMode(
+      assignedBarberIds.length > 0 && assignedBarberIds.length === barbers.length ? "all" : "selected"
+    );
+    setServiceBarberIds(assignedBarberIds);
   }
 
   async function handleCreateClient(event: FormEvent) {
@@ -670,6 +1039,15 @@ export function useBarbershopApp() {
       setClientEmail("");
       setClientPassword("");
       await refreshData("Cliente cadastrado.");
+    } catch (error) {
+      setMessage((error as Error).message);
+    }
+  }
+
+  async function handleDeleteClient(clientId: string) {
+    try {
+      await api.deleteClient(clientId);
+      await refreshData("Cliente excluído.");
     } catch (error) {
       setMessage((error as Error).message);
     }
@@ -695,6 +1073,60 @@ export function useBarbershopApp() {
     }
   }
 
+  async function handleDeleteBarber(barberId: string) {
+    try {
+      await api.deleteBarber(barberId);
+      await refreshData("Barbeiro excluído.");
+    } catch (error) {
+      setMessage((error as Error).message);
+    }
+  }
+
+  async function handleCreateAdmin(event: FormEvent) {
+    event.preventDefault();
+
+    try {
+      await api.createAdmin({
+        name: adminName,
+        email: adminEmail,
+        password: adminPassword
+      });
+      setAdminName("");
+      setAdminEmail("");
+      setAdminPassword("");
+      await refreshData("Administrador cadastrado.");
+    } catch (error) {
+      setMessage((error as Error).message);
+    }
+  }
+
+  async function handleDeleteAdmin(adminId: string) {
+    try {
+      await api.deleteAdmin(adminId);
+      await refreshData("Administrador excluído.");
+    } catch (error) {
+      setMessage((error as Error).message);
+    }
+  }
+
+  async function handleSaveBusinessRules(event: FormEvent) {
+    event.preventDefault();
+
+    try {
+      const payload: BusinessRules = {
+        appointmentCompletionRule,
+        barberCancellationHours: Number(barberCancellationHours || "0"),
+        clientCancellationHours: Number(clientCancellationHours || "0"),
+        clientBookingNoticeHours: Number(clientBookingNoticeHours || "0")
+      };
+
+      await api.updateBusinessRules(payload);
+      await refreshData("Regras da barbearia atualizadas.");
+    } catch (error) {
+      setMessage((error as Error).message);
+    }
+  }
+
   return {
     authReady,
     authScreen,
@@ -714,9 +1146,11 @@ export function useBarbershopApp() {
     setRegisterEmail,
     registerPassword,
     setRegisterPassword,
+    admins,
     barbers,
     clients,
     services,
+    businessRules,
     activeServices,
     availableBarbers,
     appointments,
@@ -730,8 +1164,19 @@ export function useBarbershopApp() {
     selectedBarberId,
     setSelectedBarberId,
     handleBookingBarberChange,
+    handleAdminBookingServiceChange,
     selectedClientId,
     setSelectedClientId,
+    bookingClientSearch,
+    setBookingClientSearch,
+    filteredBookingClients,
+    handleBookingClientSearchChange,
+    handleAdminBookingClientChange,
+    bookingBarberSearch,
+    setBookingBarberSearch,
+    filteredBookingBarbers,
+    filteredBookingBarbersByService,
+    handleBookingBarberSearchChange,
     selectedServiceId,
     setSelectedServiceId,
     selectedDate,
@@ -741,6 +1186,14 @@ export function useBarbershopApp() {
     bookingMonth,
     setBookingMonth,
     handleBookingMonthChange,
+    adminScheduleScope,
+    setAdminScheduleScope,
+    adminMonth,
+    setAdminMonth,
+    financialStartDate,
+    setFinancialStartDate,
+    financialEndDate,
+    setFinancialEndDate,
     financialSummary,
     menuAppointmentId,
     setMenuAppointmentId,
@@ -751,6 +1204,9 @@ export function useBarbershopApp() {
     openBookingModal,
     adminView,
     setAdminView,
+    handleAdminViewChange,
+    adminManagementView,
+    setAdminManagementView,
     barberView,
     setBarberView,
     adminSearch,
@@ -763,8 +1219,16 @@ export function useBarbershopApp() {
     setAppointmentStatusFilter,
     serviceName,
     setServiceName,
-    servicePrice,
+    servicePrice: formatCurrencyInput(servicePrice),
     setServicePrice,
+    handleServicePriceChange,
+    editingServiceId,
+    setEditingServiceId,
+    serviceAssignmentMode,
+    setServiceAssignmentMode,
+    serviceBarberIds,
+    setServiceBarberIds,
+    resetServiceForm,
     clientName,
     setClientName,
     clientEmail,
@@ -777,8 +1241,22 @@ export function useBarbershopApp() {
     setBarberEmail,
     barberPassword,
     setBarberPassword,
+    adminName,
+    setAdminName,
+    adminEmail,
+    setAdminEmail,
+    adminPassword,
+    setAdminPassword,
     barberServiceIds,
     setBarberServiceIds,
+    appointmentCompletionRule,
+    setAppointmentCompletionRule,
+    barberCancellationHours,
+    setBarberCancellationHours,
+    clientCancellationHours,
+    setClientCancellationHours,
+    clientBookingNoticeHours,
+    setClientBookingNoticeHours,
     barberServices,
     availableTimes,
     clientAvailableTimes,
@@ -797,8 +1275,15 @@ export function useBarbershopApp() {
     handleCancelAppointment,
     handleDeleteAppointment,
     handleCreateService,
-    handleDeactivateService,
+    handleEditService,
+    handleDeleteService,
+    handleToggleServiceActive,
     handleCreateClient,
-    handleCreateBarber
+    handleDeleteClient,
+    handleCreateBarber,
+    handleDeleteBarber,
+    handleCreateAdmin,
+    handleDeleteAdmin,
+    handleSaveBusinessRules
   };
 }

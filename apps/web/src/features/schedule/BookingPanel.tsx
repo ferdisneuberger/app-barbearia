@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { FormEventHandler } from "react";
 import type {
   Barber,
@@ -10,11 +11,15 @@ import type {
 type Props = {
   role: Role;
   clients: Client[];
+  filteredClients?: Client[];
   barbers: Barber[];
+  filteredBarbers?: Barber[];
   services: Service[];
   selectedDate: string;
   selectedClientId: string;
+  clientSearch?: string;
   selectedBarberId: string;
+  barberSearch?: string;
   selectedServiceId: string;
   selectedTime: string;
   availableTimes: string[];
@@ -24,7 +29,9 @@ type Props = {
   onBookingMonthChange?: (value: string) => void;
   onDateChange: (value: string) => void;
   onClientChange: (value: string) => void;
+  onClientSearchChange?: (value: string) => void;
   onBarberChange: (value: string) => void;
+  onBarberSearchChange?: (value: string) => void;
   onServiceChange: (value: string) => void;
   onTimeChange: (value: string) => void;
   onSubmit: FormEventHandler;
@@ -56,7 +63,7 @@ const weekDays = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sab", "Dom"];
 const monthOptions = [
   { value: "01", label: "Janeiro" },
   { value: "02", label: "Fevereiro" },
-  { value: "03", label: "Marco" },
+  { value: "03", label: "Março" },
   { value: "04", label: "Abril" },
   { value: "05", label: "Maio" },
   { value: "06", label: "Junho" },
@@ -68,8 +75,21 @@ const monthOptions = [
   { value: "12", label: "Dezembro" }
 ];
 
+function getFallbackMonth() {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit"
+  }).format(new Date());
+}
+
 export function BookingPanel(props: Props) {
-  if (props.role !== "client") {
+  const visibleClients = props.filteredClients ?? props.clients;
+  const visibleBarbers = props.filteredBarbers ?? props.barbers;
+  const [isClientPickerOpen, setIsClientPickerOpen] = useState(false);
+  const [isBarberPickerOpen, setIsBarberPickerOpen] = useState(false);
+
+  if (props.role === "barber") {
     return (
       <article className="panel">
         <h2>Agendamento</h2>
@@ -99,22 +119,56 @@ export function BookingPanel(props: Props) {
             </label>
           ) : null}
 
-          <label>
-            Barbeiro
-            <select
-              value={props.selectedBarberId}
-              onChange={(event) => props.onBarberChange(event.target.value)}
-            >
-              {props.barbers.map((barber) => (
-                <option key={barber.id} value={barber.id}>
-                  {barber.name}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div className="stack client-picker">
+            <label>
+              Barbeiro
+              <input
+                type="search"
+                value={props.barberSearch ?? ""}
+                onFocus={() => setIsBarberPickerOpen(true)}
+                onBlur={() => {
+                  globalThis.setTimeout(() => {
+                    setIsBarberPickerOpen(false);
+                  }, 120);
+                }}
+                onChange={(event) => {
+                  setIsBarberPickerOpen(true);
+                  props.onBarberSearchChange?.(event.target.value);
+                }}
+                placeholder="Digite para buscar barbeiro"
+              />
+            </label>
+            {isBarberPickerOpen ? (
+              <div className="client-picker-list" role="listbox" aria-label="Barbeiros encontrados">
+                {visibleBarbers.length === 0 ? (
+                  <p className="muted">Nenhum barbeiro encontrado.</p>
+                ) : (
+                  visibleBarbers.map((barber) => (
+                    <button
+                      key={barber.id}
+                      type="button"
+                      className={
+                        props.selectedBarberId === barber.id
+                          ? "client-picker-item is-selected"
+                          : "client-picker-item"
+                      }
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => {
+                        props.onBarberChange(barber.id);
+                        setIsBarberPickerOpen(false);
+                      }}
+                    >
+                      <strong>{barber.name}</strong>
+                      <small>{barber.email}</small>
+                    </button>
+                  ))
+                )}
+              </div>
+            ) : null}
+          </div>
 
           <label>
-            Servico
+            Serviço
             <select
               value={props.selectedServiceId}
               onChange={(event) => props.onServiceChange(event.target.value)}
@@ -128,14 +182,14 @@ export function BookingPanel(props: Props) {
           </label>
 
           <label>
-            Horario disponivel
+            Horário disponível
             <select
               value={props.selectedTime}
               onChange={(event) => props.onTimeChange(event.target.value)}
               disabled={props.availableTimes.length === 0}
             >
               {props.availableTimes.length === 0 ? (
-                <option value="">Nenhum horario disponivel</option>
+                <option value="">Nenhum horário disponível</option>
               ) : (
                 props.availableTimes.map((time) => (
                   <option key={time} value={time}>
@@ -156,7 +210,10 @@ export function BookingPanel(props: Props) {
     );
   }
 
-  const bookingMonth = props.bookingMonth ?? "";
+  const bookingMonth =
+    props.bookingMonth && /^\d{4}-\d{2}$/.test(props.bookingMonth)
+      ? props.bookingMonth
+      : getFallbackMonth();
   const monthAvailability = props.monthAvailability ?? [];
   const availabilityMap = new Map(monthAvailability.map((item) => [item.date, item.availableCount]));
   const { daysInMonth, startWeekDay } = buildMonthDays(bookingMonth);
@@ -168,19 +225,135 @@ export function BookingPanel(props: Props) {
     <article className="panel booking-panel">
       <h2>Novo agendamento</h2>
       <form className="stack" onSubmit={props.onSubmit}>
-        <label>
-          Barbeiro
-          <select
-            value={props.selectedBarberId}
-            onChange={(event) => props.onBarberChange(event.target.value)}
-          >
-            {props.barbers.map((barber) => (
-              <option key={barber.id} value={barber.id}>
-                {barber.name}
-              </option>
-            ))}
-          </select>
-        </label>
+        {props.role === "admin" ? (
+          <div className="stack client-picker">
+            <label>
+              Cliente
+              <input
+                type="search"
+                value={props.clientSearch ?? ""}
+                onFocus={() => setIsClientPickerOpen(true)}
+                onBlur={() => {
+                  globalThis.setTimeout(() => {
+                    setIsClientPickerOpen(false);
+                  }, 120);
+                }}
+                onChange={(event) => props.onClientSearchChange?.(event.target.value)}
+                placeholder="Digite para buscar cliente"
+              />
+            </label>
+            {isClientPickerOpen ? (
+              <div className="client-picker-list" role="listbox" aria-label="Clientes encontrados">
+                {visibleClients.length === 0 ? (
+                  <p className="muted">Nenhum cliente encontrado.</p>
+                ) : (
+                  visibleClients.map((client) => (
+                    <button
+                      key={client.id}
+                      type="button"
+                      className={
+                        props.selectedClientId === client.id
+                          ? "client-picker-item is-selected"
+                          : "client-picker-item"
+                      }
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => {
+                        props.onClientChange(client.id);
+                        setIsClientPickerOpen(false);
+                      }}
+                    >
+                      <strong>{client.name}</strong>
+                      <small>{client.email}</small>
+                    </button>
+                  ))
+                )}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        {props.role === "admin" && props.selectedClientId ? (
+          <label>
+            Serviço
+            <select
+              value={props.selectedServiceId}
+              onChange={(event) => props.onServiceChange(event.target.value)}
+            >
+              <option value="">Selecione um serviço</option>
+              {props.services.map((service) => (
+                <option key={service.id} value={service.id}>
+                  {service.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+
+        {props.role !== "admin" ? (
+          <label>
+            Serviço
+            <select
+              value={props.selectedServiceId}
+              onChange={(event) => props.onServiceChange(event.target.value)}
+            >
+              {props.services.map((service) => (
+                <option key={service.id} value={service.id}>
+                  {service.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+
+        {props.role !== "admin" || props.selectedServiceId ? (
+          <div className="stack client-picker">
+            <label>
+              Barbeiro
+            <input
+              type="search"
+              value={props.barberSearch ?? ""}
+              onFocus={() => setIsBarberPickerOpen(true)}
+              onBlur={() => {
+                  globalThis.setTimeout(() => {
+                  setIsBarberPickerOpen(false);
+                }, 120);
+              }}
+              onChange={(event) => {
+                setIsBarberPickerOpen(true);
+                props.onBarberSearchChange?.(event.target.value);
+              }}
+              placeholder="Digite para buscar barbeiro"
+            />
+          </label>
+            {isBarberPickerOpen ? (
+              <div className="client-picker-list" role="listbox" aria-label="Barbeiros encontrados">
+                {visibleBarbers.length === 0 ? (
+                  <p className="muted">Nenhum barbeiro encontrado.</p>
+                ) : (
+                  visibleBarbers.map((barber) => (
+                    <button
+                      key={barber.id}
+                      type="button"
+                      className={
+                        props.selectedBarberId === barber.id
+                          ? "client-picker-item is-selected"
+                          : "client-picker-item"
+                      }
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => {
+                        props.onBarberChange(barber.id);
+                        setIsBarberPickerOpen(false);
+                      }}
+                    >
+                      <strong>{barber.name}</strong>
+                      <small>{barber.email}</small>
+                    </button>
+                  ))
+                )}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
 
         {props.selectedBarberId ? (
           <section className="booking-calendar">
@@ -189,7 +362,7 @@ export function BookingPanel(props: Props) {
                 <h3>{monthLabel}</h3>
                 <div className="calendar-toolbar-fields">
                   <label className="compact-field">
-                    <span>Mes</span>
+                    <span>Mês</span>
                     <select
                       value={selectedMonth}
                       onChange={(event) =>
@@ -258,25 +431,11 @@ export function BookingPanel(props: Props) {
 
         {props.selectedDate ? (
           <>
-            <label>
-              Servico
-              <select
-                value={props.selectedServiceId}
-                onChange={(event) => props.onServiceChange(event.target.value)}
-              >
-                {props.services.map((service) => (
-                  <option key={service.id} value={service.id}>
-                    {service.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-
             <div className="stack">
-              <p className="muted">Horarios disponiveis para o dia selecionado</p>
+              <p className="muted">Horários disponíveis para o dia selecionado</p>
               <div className="time-grid">
                 {props.availableTimes.length === 0 ? (
-                  <p className="muted">Nenhum horario disponivel neste dia.</p>
+                  <p className="muted">Nenhum horário disponível neste dia.</p>
                 ) : (
                   props.availableTimes.map((time) => (
                     <button
@@ -295,7 +454,7 @@ export function BookingPanel(props: Props) {
         ) : null}
 
         <button type="submit" disabled={!props.selectedDate || !props.selectedTime}>
-          Efetuar agendamento
+          {props.role === "admin" ? "Criar agendamento" : "Efetuar agendamento"}
         </button>
       </form>
 

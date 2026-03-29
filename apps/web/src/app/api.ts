@@ -4,6 +4,7 @@ import type {
   Barber,
   BookingDayAvailability,
   BootstrapPayload,
+  BusinessRules,
   Client,
   FinancialSummary,
   Service,
@@ -35,6 +36,10 @@ export function createApiClient(getToken: () => string | null) {
         ...(init?.headers)
       }
     });
+
+    if (response.status === 204) {
+      return undefined as T;
+    }
 
     const data = (await response.json()) as T & { message?: string };
     if (!response.ok) {
@@ -71,6 +76,9 @@ export function createApiClient(getToken: () => string | null) {
     loadAvailability(barberId: string, date: string) {
       return request<Availability[]>(`/availability?barberId=${barberId}&date=${date}`);
     },
+    loadAvailabilityMonth(barberId: string, month: string) {
+      return request<BookingDayAvailability[]>(`/availability/month?barberId=${barberId}&month=${month}`);
+    },
     loadBookableAvailability(barberId: string, date: string) {
       return request<Availability[]>(`/availability/booking?barberId=${barberId}&date=${date}`);
     },
@@ -79,8 +87,16 @@ export function createApiClient(getToken: () => string | null) {
         `/availability/booking/month?barberId=${barberId}&month=${month}`
       );
     },
-    loadFinancial(date: string) {
-      return request<FinancialSummary>(`/financial-summary?startDate=${date}&endDate=${date}`);
+    loadFinancial(startDate: string, endDate: string) {
+      return request<FinancialSummary>(
+        `/financial-summary?startDate=${startDate}&endDate=${endDate}`
+      );
+    },
+    updateBusinessRules(payload: BusinessRules) {
+      return request<BusinessRules>("/business-rules", {
+        method: "PATCH",
+        body: JSON.stringify(payload)
+      });
     },
     createAppointment(payload: {
       clientId: string;
@@ -127,7 +143,12 @@ export function createApiClient(getToken: () => string | null) {
         body: JSON.stringify(payload)
       });
     },
-    createService(payload: { name: string; priceInCents: number }) {
+    createService(payload: {
+      name: string;
+      priceInCents: number;
+      assignToAllBarbers?: boolean;
+      barberIds?: string[];
+    }) {
       return request<Service>("/services", {
         method: "POST",
         body: JSON.stringify(payload)
@@ -137,17 +158,25 @@ export function createApiClient(getToken: () => string | null) {
       name?: string;
       priceInCents?: number;
       active?: boolean;
+      assignToAllBarbers?: boolean;
+      barberIds?: string[];
     }) {
       return request<Service>(`/services/${serviceId}`, {
         method: "PATCH",
         body: JSON.stringify(payload)
       });
     },
+    deleteService(serviceId: string) {
+      return request<void>(`/services/${serviceId}`, { method: "DELETE" });
+    },
     createClient(payload: { name: string; email: string; password: string }) {
       return request<Client>("/clients", {
         method: "POST",
         body: JSON.stringify(payload)
       });
+    },
+    deleteClient(clientId: string) {
+      return request<void>(`/clients/${clientId}`, { method: "DELETE" });
     },
     createBarber(payload: {
       name: string;
@@ -159,6 +188,18 @@ export function createApiClient(getToken: () => string | null) {
         method: "POST",
         body: JSON.stringify(payload)
       });
+    },
+    deleteBarber(barberId: string) {
+      return request<void>(`/barbers/${barberId}`, { method: "DELETE" });
+    },
+    createAdmin(payload: { name: string; email: string; password: string }) {
+      return request<User>("/admins", {
+        method: "POST",
+        body: JSON.stringify(payload)
+      });
+    },
+    deleteAdmin(adminId: string) {
+      return request<void>(`/admins/${adminId}`, { method: "DELETE" });
     }
   };
 }

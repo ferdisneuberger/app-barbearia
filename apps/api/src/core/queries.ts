@@ -45,6 +45,12 @@ export function serializeClients(data: AppData) {
   });
 }
 
+export function serializeAdmins(data: AppData) {
+  return data.users
+    .filter((user) => user.role === "admin")
+    .map((user) => serializeUser(user));
+}
+
 function serializeAppointments(data: AppData) {
   return data.appointments
     .map((appointment) => {

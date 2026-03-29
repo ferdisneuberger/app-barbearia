@@ -48,6 +48,15 @@ export type AvailabilitySlot = {
   enabled: boolean;
 };
 
+export type AppointmentCompletionRule = "after_start" | "anytime";
+
+export type BusinessRules = {
+  appointmentCompletionRule: AppointmentCompletionRule;
+  barberCancellationHours: number;
+  clientCancellationHours: number;
+  clientBookingNoticeHours: number;
+};
+
 export type AppData = {
   users: User[];
   clients: Client[];
@@ -55,4 +64,5 @@ export type AppData = {
   services: Service[];
   appointments: Appointment[];
   availability: AvailabilitySlot[];
+  businessRules: BusinessRules;
 };

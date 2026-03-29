@@ -13,6 +13,7 @@ type Props = {
   onSave: () => void;
   onCancel: (appointmentId: string) => void;
   onDelete: (appointmentId: string) => void;
+  clientCancellationHours: number;
 };
 
 export function AppointmentModal(props: Props) {
@@ -48,7 +49,7 @@ export function AppointmentModal(props: Props) {
             </label>
 
             <label>
-              Servico
+              Serviço
               <select
                 value={props.actionModal.serviceId}
                 onChange={(event) => props.onServiceChange(event.target.value)}
@@ -64,7 +65,7 @@ export function AppointmentModal(props: Props) {
             </label>
 
             <label>
-              Horario
+              Horário
               <select
                 value={props.actionModal.time}
                 onChange={(event) => props.onTimeChange(event.target.value)}
@@ -81,7 +82,8 @@ export function AppointmentModal(props: Props) {
           <div className="stack">
             <p>Tem certeza que deseja cancelar este agendamento?</p>
             <p className="muted">
-              Cancelamentos so podem ser realizados com no minimo 3 horas de antecedencia.
+              Cancelamentos só podem ser realizados com no mínimo{" "}
+              {props.clientCancellationHours} horas de antecedência.
             </p>
           </div>
         )}
@@ -92,7 +94,7 @@ export function AppointmentModal(props: Props) {
               onClick={props.onSave}
               disabled={props.modalTimes.length === 0 || !props.actionModal.time}
             >
-              Salvar alteracoes
+              Salvar alterações
             </button>
           ) : null}
           {props.role === "client" ? (

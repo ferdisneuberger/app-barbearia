@@ -3,13 +3,19 @@ import {
   bootstrapController,
   cancelAppointmentController,
   completeAppointmentController,
+  createAdminController,
   createAppointmentController,
   createBarberController,
   createClientController,
+  deleteAdminController,
+  deleteBarberController,
+  deleteClientController,
+  deleteServiceController,
   createServiceController,
   deleteAppointmentController,
   financialSummaryController,
   healthController,
+  listAvailabilityMonthController,
   listBookableAvailabilityController,
   listBookableAvailabilityMonthController,
   listAppointmentsController,
@@ -20,6 +26,7 @@ import {
   registerController,
   updateAppointmentController,
   updateAvailabilityController,
+  updateBusinessRulesController,
   updateServiceController
 } from "./controllers.ts";
 import { asyncHandler } from "./utils.ts";
@@ -42,14 +49,21 @@ router.patch("/appointments/:appointmentId", asyncHandler(updateAppointmentContr
 router.delete("/appointments/:appointmentId", asyncHandler(deleteAppointmentController));
 
 router.get("/availability", asyncHandler(listAvailabilityController));
+router.get("/availability/month", asyncHandler(listAvailabilityMonthController));
 router.get("/availability/booking", asyncHandler(listBookableAvailabilityController));
 router.get("/availability/booking/month", asyncHandler(listBookableAvailabilityMonthController));
 router.patch("/availability", asyncHandler(updateAvailabilityController));
 
 router.get("/financial-summary", asyncHandler(financialSummaryController));
+router.patch("/business-rules", asyncHandler(updateBusinessRulesController));
 
 router.post("/services", asyncHandler(createServiceController));
 router.patch("/services/:serviceId", asyncHandler(updateServiceController));
+router.delete("/services/:serviceId", asyncHandler(deleteServiceController));
 
 router.post("/clients", asyncHandler(createClientController));
+router.delete("/clients/:clientId", asyncHandler(deleteClientController));
 router.post("/barbers", asyncHandler(createBarberController));
+router.delete("/barbers/:barberId", asyncHandler(deleteBarberController));
+router.post("/admins", asyncHandler(createAdminController));
+router.delete("/admins/:adminId", asyncHandler(deleteAdminController));

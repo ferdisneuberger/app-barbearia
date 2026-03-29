@@ -50,7 +50,13 @@ function makeData(): AppData {
         startsAt: buildIso("2026-04-01", "10:15"),
         enabled: true
       }
-    ]
+    ],
+    businessRules: {
+      appointmentCompletionRule: "after_start",
+      barberCancellationHours: 12,
+      clientCancellationHours: 3,
+      clientBookingNoticeHours: 2
+    }
   };
 }
 
@@ -75,7 +81,53 @@ test("cria agendamento confirmado quando horario esta disponivel", () => {
 
   assert.equal(appointment.status, "confirmed");
   assert.equal(appointment.startsAt, "2026-04-01T10:15:00-03:00");
+  assert.match(appointment.id, /^[0-9a-f-]{36}$/i);
   assert.equal(data.appointments.length, 1);
+});
+
+test("cria agendamento com uuid mesmo quando existem ids antigos no historico", () => {
+  const data = makeData();
+
+  data.appointments.push({
+    id: "apt_1",
+    clientId: "cli_1",
+    barberId: "bar_1",
+    serviceId: "srv_1",
+    startsAt: buildIso("2026-04-01", "08:00"),
+    endsAt: toBrasiliaIso(addMinutes(new Date(buildIso("2026-04-01", "08:00")), 45)),
+    status: "cancelled",
+    paid: false,
+    paidAt: null,
+    rescheduledAt: null,
+    rescheduledByRole: null
+  });
+  data.appointments.push({
+    id: "apt_3",
+    clientId: "cli_1",
+    barberId: "bar_1",
+    serviceId: "srv_1",
+    startsAt: buildIso("2026-04-01", "09:15"),
+    endsAt: toBrasiliaIso(addMinutes(new Date(buildIso("2026-04-01", "09:15")), 45)),
+    status: "cancelled",
+    paid: false,
+    paidAt: null,
+    rescheduledAt: null,
+    rescheduledByRole: null
+  });
+
+  const appointment = createAppointment(data, {
+    actor: getUser(data, "admin"),
+    clientId: "cli_1",
+    barberId: "bar_1",
+    serviceId: "srv_1",
+    date: "2026-04-01",
+    time: "10:15",
+    now: new Date("2026-04-01T06:00:00-03:00")
+  });
+
+  assert.match(appointment.id, /^[0-9a-f-]{36}$/i);
+  assert.notEqual(appointment.id, "apt_1");
+  assert.notEqual(appointment.id, "apt_3");
 });
 
 test("impede agendamento com menos de 2 horas de antecedencia", () => {
@@ -332,6 +384,33 @@ test("nao permite concluir atendimento antes do inicio do horario agendado", () 
   );
 });
 
+test("permite concluir atendimento antes do inicio quando a regra estiver em qualquer momento", () => {
+  const data = makeData();
+  data.businessRules.appointmentCompletionRule = "anytime";
+
+  data.appointments.push({
+    id: "apt_1",
+    clientId: "cli_1",
+    barberId: "bar_1",
+    serviceId: "srv_1",
+    startsAt: buildIso("2026-04-01", "10:15"),
+    endsAt: toBrasiliaIso(addMinutes(new Date(buildIso("2026-04-01", "10:15")), 45)),
+    status: "confirmed",
+    paid: false,
+    paidAt: null,
+    rescheduledAt: null,
+    rescheduledByRole: null
+  });
+
+  const appointment = completeAppointment(data, {
+    actor: getUser(data, "barber"),
+    appointmentId: "apt_1",
+    now: new Date("2026-04-01T10:00:00-03:00")
+  });
+
+  assert.equal(appointment.status, "completed");
+});
+
 test("nao permite registrar pagamento duas vezes", () => {
   const data = makeData();
 
@@ -387,6 +466,22 @@ test("lista horarios bookable respeitando antecedencia minima", () => {
   );
 
   assert.equal(availability[0]?.available, false);
+});
+
+test("admin pode criar agendamento sem respeitar antecedencia minima do cliente", () => {
+  const data = makeData();
+
+  const appointment = createAppointment(data, {
+    actor: getUser(data, "admin"),
+    clientId: "cli_1",
+    barberId: "bar_1",
+    serviceId: "srv_1",
+    date: "2026-04-01",
+    time: "10:15",
+    now: new Date("2026-04-01T09:30:00-03:00")
+  });
+
+  assert.equal(appointment.status, "confirmed");
 });
 
 test("resume disponibilidade mensal bookable por dia", () => {

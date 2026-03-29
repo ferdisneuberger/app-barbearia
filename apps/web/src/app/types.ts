@@ -54,10 +54,56 @@ export type BookingDayAvailability = {
   availableCount: number;
 };
 
+export type FinancialBarberSummary = {
+  barberId: string;
+  barberName: string;
+  appointments: number;
+  paidAppointments: number;
+  pendingAppointments: number;
+  grossPredictedLabel: string;
+  grossReceivedLabel: string;
+  shopPredictedLabel: string;
+  shopReceivedLabel: string;
+  barberPredictedLabel: string;
+  barberReceivedLabel: string;
+};
+
+export type FinancialEntry = {
+  appointmentId: string;
+  startsAt: string;
+  paidAt: string | null;
+  status: string;
+  paid: boolean;
+  clientName: string;
+  barberId: string;
+  barberName: string;
+  serviceName: string;
+  grossLabel: string;
+  shopLabel: string;
+  barberLabel: string;
+};
+
 export type FinancialSummary = {
   appointments: number;
-  predictedLabel: string;
-  receivedLabel: string;
+  paidAppointments: number;
+  pendingAppointments: number;
+  grossPredictedLabel: string;
+  grossReceivedLabel: string;
+  shopPredictedLabel: string;
+  shopReceivedLabel: string;
+  barberPredictedLabel: string;
+  barberReceivedLabel: string;
+  byBarber: FinancialBarberSummary[];
+  entries: FinancialEntry[];
+};
+
+export type AppointmentCompletionRule = "after_start" | "anytime";
+
+export type BusinessRules = {
+  appointmentCompletionRule: AppointmentCompletionRule;
+  barberCancellationHours: number;
+  clientCancellationHours: number;
+  clientBookingNoticeHours: number;
 };
 
 export type ActionModalState = {
@@ -69,7 +115,9 @@ export type ActionModalState = {
 };
 
 export type BootstrapPayload = {
+  admins: User[];
   barbers: Barber[];
   clients: Client[];
   services: Service[];
+  businessRules: BusinessRules;
 };

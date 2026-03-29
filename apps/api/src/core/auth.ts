@@ -42,6 +42,7 @@ const ROLE_SCOPES: Record<Role, string[]> = {
     "services:write",
     "clients:write",
     "barbers:write",
+    "admin:manage",
     "financial:read"
   ]
 };

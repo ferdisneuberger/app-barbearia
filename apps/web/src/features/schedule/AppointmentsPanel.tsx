@@ -1,11 +1,13 @@
 import { useRef, useState } from "react";
-import type { Appointment, Barber, Role, Service } from "../../app/types";
+import type { Appointment, Barber, BusinessRules, Role, Service } from "../../app/types";
 import { formatDateTime } from "../../app/utils";
 
 type Props = {
   role: Role;
   appointments: Appointment[];
   selectedDate?: string;
+  adminScheduleScope?: "day" | "month";
+  adminMonth?: string;
   search?: string;
   barberFilter?: string;
   serviceFilter?: string;
@@ -13,10 +15,13 @@ type Props = {
   barbers?: Barber[];
   services?: Service[];
   onDateChange?: (value: string) => void;
+  onAdminScheduleScopeChange?: (value: "day" | "month") => void;
+  onAdminMonthChange?: (value: string) => void;
   onSearchChange?: (value: string) => void;
   onBarberFilterChange?: (value: string) => void;
   onServiceFilterChange?: (value: string) => void;
   onStatusFilterChange: (value: string) => void;
+  businessRules: BusinessRules;
   menuAppointmentId: string | null;
   onMenuToggle: (appointmentId: string) => void;
   onComplete: (appointmentId: string) => void;
@@ -30,7 +35,7 @@ function getStatusLabel(status: string) {
   }
 
   if (status === "completed") {
-    return "Concluido";
+    return "Concluído";
   }
 
   if (status === "cancelled") {
@@ -68,8 +73,20 @@ function renderDetails(role: Role, appointment: Appointment) {
   return `${appointment.barberName} • ${appointment.serviceName}`;
 }
 
-function canCompleteAppointment(appointment: Appointment) {
+function canCompleteAppointment(appointment: Appointment, businessRules: BusinessRules) {
+  if (businessRules.appointmentCompletionRule === "anytime") {
+    return true;
+  }
+
   return new Date() >= new Date(appointment.startsAt);
+}
+
+function getCompleteTooltipMessage(businessRules: BusinessRules) {
+  if (businessRules.appointmentCompletionRule === "anytime") {
+    return "Atendimento pode ser concluído a qualquer momento.";
+  }
+
+  return "Só é possível concluir após iniciar o atendimento.";
 }
 
 export function AppointmentsPanel(props: Props) {
@@ -84,6 +101,22 @@ export function AppointmentsPanel(props: Props) {
     props.statusFilter === "all"
       ? props.appointments.filter((appointment) => appointment.status === "cancelled")
       : [];
+  const monthSummary = props.role === "admin" && props.adminScheduleScope === "month"
+    ? Array.from(
+        props.appointments.reduce((map, appointment) => {
+          const date = appointment.startsAt.slice(0, 10);
+          const current = map.get(date) ?? 0;
+          map.set(date, current + 1);
+          return map;
+        }, new Map<string, number>())
+      )
+        .map(([date, count]) => ({ date, count }))
+        .sort((left, right) => left.date.localeCompare(right.date))
+    : [];
+  const monthDayAppointments =
+    props.role === "admin" && props.adminScheduleScope === "month" && props.selectedDate
+      ? visibleAppointments.filter((appointment) => appointment.startsAt.startsWith(props.selectedDate))
+      : visibleAppointments;
 
   function hideBlockedTooltip() {
     setBlockedTooltipAppointmentId(null);
@@ -140,7 +173,8 @@ export function AppointmentsPanel(props: Props) {
         <div className="row-actions">
           {(props.role === "barber" || props.role === "admin") &&
           appointment.status === "confirmed" ? (() => {
-            const canComplete = canCompleteAppointment(appointment);
+            const canComplete = canCompleteAppointment(appointment, props.businessRules);
+            const blockedMessage = getCompleteTooltipMessage(props.businessRules);
 
             return (
               <div
@@ -149,17 +183,13 @@ export function AppointmentsPanel(props: Props) {
               >
                 {!canComplete && blockedTooltipAppointmentId === appointment.id ? (
                   <div className="action-tooltip" role="status" aria-live="polite">
-                    So e possivel concluir apos iniciar o atendimento.
+                    {blockedMessage}
                   </div>
                 ) : null}
                 <button
                   className={canComplete ? "ghost" : "ghost is-disabled"}
                   aria-disabled={!canComplete}
-                  title={
-                    canComplete
-                      ? "Concluir atendimento"
-                      : "So e possivel concluir apos iniciar o atendimento"
-                  }
+                  title={canComplete ? "Concluir atendimento" : blockedMessage}
                   onBlur={hideBlockedTooltip}
                   onClick={() =>
                     canComplete
@@ -189,7 +219,15 @@ export function AppointmentsPanel(props: Props) {
       <div className="panel-head">
         <h2>Agenda</h2>
         <div className="agenda-filters">
-          {props.role === "barber" ? (
+          <label className="compact-field">
+            <span>Busca</span>
+            <input
+              value={props.search ?? ""}
+              onChange={(event) => props.onSearchChange?.(event.target.value)}
+              placeholder="Cliente, barbeiro ou serviço"
+            />
+          </label>
+          {props.role === "barber" || props.role === "admin" ? (
             <label className="compact-field">
               <span>Data</span>
               <input
@@ -202,13 +240,27 @@ export function AppointmentsPanel(props: Props) {
           {props.role === "admin" ? (
             <>
               <label className="compact-field">
-                <span>Busca</span>
-                <input
-                  value={props.search ?? ""}
-                  onChange={(event) => props.onSearchChange?.(event.target.value)}
-                  placeholder="Cliente, barbeiro ou servico"
-                />
+                <span>Visão</span>
+                <select
+                  value={props.adminScheduleScope ?? "day"}
+                  onChange={(event) =>
+                    props.onAdminScheduleScopeChange?.(event.target.value as "day" | "month")
+                  }
+                >
+                  <option value="day">Dia</option>
+                  <option value="month">Mês</option>
+                </select>
               </label>
+              {props.adminScheduleScope === "month" ? (
+                <label className="compact-field">
+                  <span>Mês</span>
+                  <input
+                    type="month"
+                    value={props.adminMonth ?? ""}
+                    onChange={(event) => props.onAdminMonthChange?.(event.target.value)}
+                  />
+                </label>
+              ) : null}
               <label className="compact-field">
                 <span>Barbeiro</span>
                 <select
@@ -224,7 +276,7 @@ export function AppointmentsPanel(props: Props) {
                 </select>
               </label>
               <label className="compact-field">
-                <span>Servico</span>
+                <span>Serviço</span>
                 <select
                   value={props.serviceFilter ?? ""}
                   onChange={(event) => props.onServiceFilterChange?.(event.target.value)}
@@ -247,15 +299,36 @@ export function AppointmentsPanel(props: Props) {
             >
               <option value="all">Todos</option>
               <option value="confirmed">Confirmados</option>
-              <option value="completed">Concluidos</option>
+              <option value="completed">Concluídos</option>
               <option value="cancelled">Cancelados</option>
             </select>
           </label>
         </div>
       </div>
-      <div className="list">
-        {visibleAppointments.map(renderAppointmentRow)}
-      </div>
+      {props.role === "admin" && props.adminScheduleScope === "month" ? (
+        <>
+          <div className="month-summary">
+            {monthSummary.map((item) => (
+              <button
+                key={item.date}
+                type="button"
+                className={props.selectedDate === item.date ? "month-day-card is-selected" : "month-day-card"}
+                onClick={() => props.onDateChange?.(item.date)}
+              >
+                <strong>{item.date.slice(8, 10)}</strong>
+                <small>{item.count} agendamentos</small>
+              </button>
+            ))}
+          </div>
+          <div className="list">
+            {monthDayAppointments.map(renderAppointmentRow)}
+          </div>
+        </>
+      ) : (
+        <div className="list">
+          {visibleAppointments.map(renderAppointmentRow)}
+        </div>
+      )}
       {cancelledAppointments.length > 0 ? (
         <div className="cancelled-group">
           <button
@@ -272,7 +345,7 @@ export function AppointmentsPanel(props: Props) {
           ) : null}
         </div>
       ) : null}
-      {visibleAppointments.length === 0 && cancelledAppointments.length === 0 ? (
+      {monthDayAppointments.length === 0 && cancelledAppointments.length === 0 ? (
         <div className="list">
           <p className="muted">Nenhum agendamento encontrado.</p>
         </div>

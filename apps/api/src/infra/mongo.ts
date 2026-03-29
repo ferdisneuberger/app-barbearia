@@ -4,11 +4,14 @@ import type {
   Appointment,
   AvailabilitySlot,
   Barber,
+  BusinessRules,
   Client,
   Service,
   User
 } from "../domain/types.ts";
 import { createDefaultBarberAvailability } from "../core/admin.ts";
+import { DEFAULT_BUSINESS_RULES, normalizeBusinessRules } from "../core/rules.ts";
+import { createDefaultAdminSeed, createDefaultBusinessRulesSeed } from "./seed.ts";
 
 const mongoUri = process.env.MONGODB_URI ?? "mongodb://localhost:27017/barbearia";
 
@@ -76,6 +79,16 @@ const availabilitySchema = new Schema<AvailabilitySlot>(
   { versionKey: false }
 );
 
+const businessRulesSchema = new Schema<BusinessRules>(
+  {
+    appointmentCompletionRule: { type: String, required: true },
+    barberCancellationHours: { type: Number, required: true },
+    clientCancellationHours: { type: Number, required: true },
+    clientBookingNoticeHours: { type: Number, required: true }
+  },
+  { versionKey: false }
+);
+
 const UserModel = mongoose.models.User ?? mongoose.model<User>("User", userSchema);
 const ClientModel = mongoose.models.Client ?? mongoose.model<Client>("Client", clientSchema);
 const BarberModel = mongoose.models.Barber ?? mongoose.model<Barber>("Barber", barberSchema);
@@ -85,6 +98,9 @@ const AppointmentModel =
 const AvailabilityModel =
   mongoose.models.Availability ??
   mongoose.model<AvailabilitySlot>("Availability", availabilitySchema);
+const BusinessRulesModel =
+  mongoose.models.BusinessRules ??
+  mongoose.model<BusinessRules>("BusinessRules", businessRulesSchema);
 let writeQueue = Promise.resolve();
 type MongoDocument<T> = T & { _id?: unknown; __v?: unknown };
 
@@ -99,6 +115,8 @@ export async function connectMongo() {
 export async function ensureAppDataConsistency() {
   const userCount = await UserModel.countDocuments();
   if (userCount === 0) {
+    await UserModel.create(createDefaultAdminSeed());
+    await BusinessRulesModel.create(createDefaultBusinessRulesSeed());
     return;
   }
 
@@ -115,16 +133,22 @@ export async function ensureAppDataConsistency() {
       await AvailabilityModel.insertMany(recoveredAvailability);
     }
   }
+
+  const rules = await BusinessRulesModel.findOne().lean();
+  if (!rules) {
+    await BusinessRulesModel.create(DEFAULT_BUSINESS_RULES);
+  }
 }
 
 export async function loadAppData(): Promise<AppData> {
-  const [users, clients, barbers, services, appointments, availability] = await Promise.all([
+  const [users, clients, barbers, services, appointments, availability, businessRules] = await Promise.all([
     UserModel.find().lean(),
     ClientModel.find().lean(),
     BarberModel.find().lean(),
     ServiceModel.find().lean(),
     AppointmentModel.find().lean(),
-    AvailabilityModel.find().lean()
+    AvailabilityModel.find().lean(),
+    BusinessRulesModel.findOne().lean()
   ]);
 
   return {
@@ -137,6 +161,11 @@ export async function loadAppData(): Promise<AppData> {
     ),
     availability: availability.map((slot) =>
       stripMongoFields<AvailabilitySlot>(slot as MongoDocument<AvailabilitySlot>)
+    ),
+    businessRules: normalizeBusinessRules(
+      businessRules
+        ? stripMongoFields<BusinessRules>(businessRules as MongoDocument<BusinessRules>)
+        : undefined
     )
   };
 }
@@ -148,7 +177,8 @@ export async function saveAppData(data: AppData) {
     BarberModel.deleteMany({}),
     ServiceModel.deleteMany({}),
     AppointmentModel.deleteMany({}),
-    AvailabilityModel.deleteMany({})
+    AvailabilityModel.deleteMany({}),
+    BusinessRulesModel.deleteMany({})
   ]);
 
   await Promise.all([
@@ -157,7 +187,8 @@ export async function saveAppData(data: AppData) {
     BarberModel.insertMany(data.barbers),
     ServiceModel.insertMany(data.services),
     AppointmentModel.insertMany(data.appointments),
-    AvailabilityModel.insertMany(data.availability)
+    AvailabilityModel.insertMany(data.availability),
+    BusinessRulesModel.insertMany([normalizeBusinessRules(data.businessRules)])
   ]);
 }
 
