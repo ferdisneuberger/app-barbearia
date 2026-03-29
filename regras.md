@@ -1,360 +1,431 @@
 # Projeto Barbearia
 
-## Visao Geral
+## Visão Geral
 
-Este projeto tem como objetivo criar uma aplicacao para gerenciamento de agendamentos de uma barbearia, com duas interfaces principais:
+Esta V1 entrega um sistema de agendamento para barbearia com:
 
-- Aplicativo do cliente
-- Dashboard administrativo da barbearia
+- frontend web em Vite + React
+- backend HTTP em Node.js + TypeScript + Express
+- persistência em MongoDB via Mongoose
+- autenticação por JWT com cookies
+- operação para três perfis: cliente, barbeiro e administrador
 
-O sistema deve permitir que clientes realizem agendamentos com praticidade e que a barbearia tenha controle operacional, comercial e financeiro sobre os atendimentos.
+O objetivo do produto é permitir agendamento self-service pelo cliente e controle operacional, administrativo e financeiro pela barbearia.
 
-## Objetivo do Produto
-
-O produto deve resolver os seguintes problemas:
-
-- Permitir que clientes agendem horarios sem depender de atendimento manual
-- Evitar conflitos de agenda entre barbeiros
-- Dar visibilidade da rotina diaria da barbearia
-- Facilitar a gestao de clientes e profissionais
-- Gerar previsao de receita com base nos agendamentos
-
-## Perfis de Usuario
+## Perfis de Usuário
 
 ### Cliente
 
 Pode:
 
-- Criar conta e autenticar no sistema
-- Visualizar barbeiros disponiveis
-- Visualizar dias e horarios disponiveis
-- Realizar agendamento
-- Consultar seus proprios agendamentos
-- Cancelar ou remarcar agendamentos, conforme as regras de negocio
+- criar conta
+- fazer login
+- visualizar todos os próprios agendamentos
+- abrir novo agendamento em fluxo guiado
+- cancelar agendamento dentro da regra de antecedência
+
+Não pode:
+
+- ver agenda de outros clientes
+- concluir atendimento
+- marcar pagamento
+- alterar disponibilidade
 
 ### Barbeiro
 
 Pode:
 
-- Visualizar sua agenda
-- Consultar atendimentos do dia
-- Consultar historico de atendimentos vinculados a ele
+- fazer login
+- visualizar apenas a própria agenda
+- visualizar agenda por data selecionada
+- concluir atendimento
+- marcar pagamento
+- gerenciar a própria disponibilidade
+- cancelar ou remarcar agendamentos vinculados a ele, conforme regra de antecedência
 
-### Administrador da Barbearia
+Não pode:
+
+- acessar financeiro administrativo
+- gerenciar clientes, admins ou serviços administrativos globais
+- alterar disponibilidade de outro barbeiro
+
+### Administrador
 
 Pode:
 
-- Realizar login no dashboard
-- Cadastrar, editar, ativar e desativar barbeiros
-- Cadastrar, editar e consultar clientes
-- Criar agendamentos em nome de clientes
-- Consultar agenda por dia
-- Filtrar agendamentos por cliente
-- Filtrar agendamentos por barbeiro
-- Visualizar relatorio financeiro com previsao de receita
+- fazer login
+- visualizar agenda com filtros operacionais
+- criar agendamento em nome de cliente
+- gerenciar serviços
+- gerenciar clientes
+- gerenciar barbeiros
+- gerenciar administradores
+- configurar regras da barbearia
+- visualizar financeiro
+- excluir agendamentos
 
-## Escopo Funcional
+## Módulos da V1
 
-### Modulo de Autenticacao
+### Autenticação
 
-O sistema deve possuir autenticacao por usuario e senha.
+- login por e-mail e senha
+- cadastro público cria usuário cliente
+- separação de acesso por escopos de permissão
+- o backend é a fonte de verdade para autenticação e autorização
 
-O frontend deve possuir uma unica tela de login para todos os usuarios.
+### Agenda
 
-Deve existir separacao de permissao entre:
+- agenda do cliente lista todos os agendamentos dele
+- agenda do barbeiro lista apenas agendamentos do dia selecionado
+- agenda do admin possui visão por dia e por mês
+- filtros por status existem para todos os perfis
+- busca textual existe para admin e barbeiro
+- cancelados ficam no final da lista
+- pagos também são empurrados para o final dos itens ativos
 
-- Cliente
-- Barbeiro
-- Administrador
+### Novo Agendamento
 
-Cada usuario deve possuir exatamente um perfil.
+#### Fluxo do Cliente
 
-Após o login, o sistema deve liberar apenas os modulos permitidos para o perfil autenticado.
+O fluxo do cliente é:
 
-### Modulo de Agendamento
+1. escolher barbeiro
+2. escolher mês e ano
+3. escolher dia no calendário
+4. escolher horário disponível
+5. escolher serviço
+6. confirmar agendamento
 
-O cliente e o administrador poderao:
+Regras:
 
-- Escolher o servico
-- Escolher o barbeiro
-- Escolher a data
-- Escolher o horario
-- Confirmar o agendamento
+- o calendário mensal mostra quantidade de vagas por dia
+- dias sem vagas ficam marcados como indisponíveis
+- a lista de horários vem da API
+- o frontend não deduz disponibilidade localmente
 
-O sistema deve garantir:
+#### Fluxo do Admin
 
-- Que um barbeiro nao tenha dois agendamentos no mesmo horario
-- Que apenas horarios disponiveis sejam exibidos
-- Que agendamentos respeitem status e regras de disponibilidade
+O fluxo do admin é:
 
-### Modulo de Gestao
+1. escolher cliente
+2. escolher serviço
+3. escolher barbeiro compatível com o serviço
+4. escolher mês e ano
+5. escolher dia
+6. escolher horário
+7. confirmar agendamento
 
-O dashboard administrativo deve permitir:
+Regras:
 
-- Cadastro de barbeiros
-- Cadastro de clientes
-- Consulta de agenda diaria
-- Consulta de agendamentos com filtros
-- Consulta de atendimentos por barbeiro
-
-### Modulo Financeiro
-
-O administrador deve conseguir visualizar:
-
-- Periodo filtrado
-- Quantidade de agendamentos no periodo
-- Previsao de receita do periodo
-
-Regra inicial:
-
-- A previsao de receita deve ser calculada com base nos agendamentos do periodo filtrado, excluindo cancelados
-- O relatorio de pagamentos realizados deve considerar apenas atendimentos com recebimento confirmado
-
-## Entidades Principais
-
-O dominio inicial do sistema deve considerar ao menos as seguintes entidades:
-
-- Usuario
-- Cliente
-- Barbeiro
-- Agendamento
-- Disponibilidade
-- Servico
-- Pagamento
-
-## Regras de Negocio
-
-As regras abaixo devem ser consideradas como base inicial do projeto:
-
-1. Todo agendamento deve estar vinculado a um cliente e a um barbeiro.
-2. Todo agendamento deve estar vinculado a um unico servico.
-3. Um barbeiro nao pode possuir dois agendamentos no mesmo horario.
-4. Um horario so pode ser reservado se estiver disponivel.
-5. O cliente so pode visualizar e gerenciar os proprios agendamentos.
-6. O administrador pode visualizar e gerenciar todos os agendamentos.
-7. O sistema deve permitir filtros por cliente, barbeiro e periodo.
-8. O sistema deve suportar, no minimo, os status de agendamento:
-
-- Confirmado
-- Cancelado
-- Concluido
-9. Novos agendamentos devem ser criados ja com status Confirmado.
-10. A duracao padrao de cada atendimento sera de 45 minutos.
-11. O cliente nao pode selecionar mais de um servico no mesmo agendamento.
-12. Os servicos pertencem a barbearia e sao cadastrados pelo administrador.
-13. O valor do servico sera definido pelo administrador e sera o mesmo para todos os barbeiros aptos a executa-lo.
-14. O administrador define quais servicos cada barbeiro pode executar.
-15. A antecedencia minima para criar um agendamento sera de 2 horas.
-16. O cliente pode cancelar ou remarcar um agendamento com no minimo 3 horas de antecedencia.
-17. O barbeiro pode cancelar ou remarcar um agendamento com no minimo 12 horas de antecedencia.
-18. O administrador pode cancelar ou remarcar um agendamento a qualquer momento.
-19. A barbearia possui horario global de funcionamento das 08:00 as 20:00, no fuso horario de Brasilia.
-20. O administrador cria os horarios base de disponibilidade.
-21. O barbeiro pode ativar ou desativar horarios a qualquer momento, desde que o horario esteja livre.
-22. Um horario com agendamento existente nao pode ser desativado pelo barbeiro.
-23. Deve existir bloqueio manual de horarios por disponibilidade.
-24. A previsao financeira deve considerar os agendamentos do periodo, pela data do agendamento, excluindo os cancelados.
-25. O relatorio de pagamentos finalizados deve considerar apenas agendamentos com recebimento igual a verdadeiro.
-26. O pagamento so pode ser marcado ao final do atendimento.
-27. O pagamento pode ser marcado pelo barbeiro ou pelo administrador.
-28. O registro de pagamento deve armazenar data e hora da confirmacao do recebimento.
-29. Agendamentos cancelados nao podem ser marcados como pagos.
-30. Cliente, Barbeiro e Administrador sao entidades separadas, ligadas a uma superclasse Usuario para compartilhamento de informacoes basicas.
-31. Cada Usuario deve possuir exatamente um perfil no sistema.
-32. Quando um barbeiro ou administrador alterar dia ou horario de um agendamento, o cliente deve visualizar um badge de alteracao no proprio agendamento.
-33. O fluxo de agendamento do cliente deve iniciar pela escolha de um barbeiro disponivel.
-34. Os servicos nao devem ser apagados fisicamente; devem apenas ser desativados.
-35. Servicos desativados continuam visiveis em agendamentos antigos, mas nao podem ser usados em novos agendamentos.
-36. Ao cadastrar um barbeiro, o backend deve gerar automaticamente a disponibilidade padrao para os proximos 12 meses, de segunda a sexta, das 08:00 as 18:00, com intervalos de 45 minutos.
-
-## Decisoes Consolidadas
-
-### Agendamento
-
-- Todo novo agendamento nasce com status `Confirmado`
-- Os status validos serao `Confirmado`, `Cancelado` e `Concluido`
-- Cada agendamento possui exatamente um cliente, um barbeiro e um servico
-- A duracao padrao do atendimento sera de 45 minutos
-- O cliente deve agendar com antecedencia minima de 2 horas
-
-### Cancelamento e Remarcacao
-
-- O cliente pode cancelar ou remarcar com antecedencia minima de 3 horas
-- O barbeiro pode cancelar ou remarcar com antecedencia minima de 12 horas
-- O administrador pode cancelar ou remarcar a qualquer momento
-- Alteracoes de data e horario feitas por barbeiro ou administrador devem ser sinalizadas ao cliente com badge
-
-### Servicos
-
-- O administrador pode criar quantos servicos desejar
-- O servico pertence a barbearia
-- O valor do servico e definido pelo administrador
-- O valor do servico e igual para todos os barbeiros
-- O administrador define quais barbeiros estao aptos para cada servico
-- O cliente nao pode contratar mais de um servico no mesmo agendamento
-- Servicos podem ser desativados em vez de apagados
-- Servicos desativados nao aparecem para novos agendamentos
-- Servicos desativados continuam visiveis no historico e em agendamentos antigos
+- cliente e barbeiro não vêm pré-selecionados
+- ao trocar cliente, o fluxo dependente é resetado
+- ao trocar serviço, a lista de barbeiros deve ser recalculada
+- ao trocar barbeiro, calendário e horários devem ser recarregados
 
 ### Disponibilidade
 
-- A barbearia possui horario global de funcionamento das 08:00 as 20:00
-- O timezone oficial do sistema sera Brasilia
-- O administrador cria os horarios base disponiveis
-- O cadastro de barbeiro deve gerar disponibilidade padrao automaticamente no backend para os proximos 12 meses
-- O barbeiro pode ativar ou desativar horarios de forma simples
-- O barbeiro so pode desativar horarios que estejam livres
-- Horarios com agendamento nao podem ser desativados
-- A API deve ser a unica fonte de verdade para informar se um horario esta disponivel para novo agendamento
-- O frontend nao deve deduzir disponibilidade localmente quando houver retorno explicito do backend
-- O fluxo de agendamento do cliente deve consultar disponibilidade diaria e mensal diretamente da API
-- A disponibilidade mensal deve informar, por dia, a quantidade de vagas disponiveis
-- Dias sem vagas devem ser tratados como indisponiveis no calendario do cliente
-- Quando a base estiver inconsistente e um barbeiro existir sem disponibilidade gerada, o backend deve reconstruir a disponibilidade padrao no bootstrap
+- existe uma janela global de horários da barbearia
+- disponibilidade diária e mensal é calculada pela API
+- o barbeiro visualiza a disponibilidade em grade compacta
+- há ação em lote para ativar todos os horários do dia
+- há ação em lote para desativar todos os horários livres do dia
+- horários reservados não podem ser desativados
 
-### Pagamentos e Financeiro
+### Administrativo
 
-- O pagamento acontece apenas ao final do atendimento
-- O pagamento pode ser registrado pelo barbeiro ou pelo administrador
-- O recebimento deve registrar data e hora da confirmacao
-- Cancelamentos nao entram na previsao de receita
-- A previsao financeira usa a data do agendamento como referencia
-- O relatorio de pagamentos finalizados considera apenas recebimentos confirmados
+O administrativo foi separado por páginas internas:
 
-### Agenda e Visualizacao
+- serviços
+- clientes
+- barbeiros
+- admins
+- regras da barbearia
 
-- O cliente deve visualizar todos os seus agendamentos, independentemente da data
-- O barbeiro deve visualizar apenas os agendamentos do dia selecionado
-- O administrador deve visualizar a agenda diaria do dia selecionado
-- Agendamentos cancelados devem ser exibidos no final da lista
-- A agenda deve possuir filtro por status para todos os perfis
-- A agenda administrativa deve possuir tambem busca textual e filtros por barbeiro e servico
+### Financeiro
 
-### Estados do Agendamento
+O financeiro do admin possui:
 
-- Os estados validos de agenda em uso no produto sao `confirmed`, `cancelled` e `completed`
-- Todo novo agendamento nasce confirmado
-- Um agendamento cancelado nao pode voltar a ser concluido
-- Um agendamento concluido nao pode ser cancelado depois
-- Um agendamento cancelado nao pode ser pago
-- Um agendamento nao pode receber pagamento em duplicidade
-- Alteracoes feitas por barbeiro ou administrador devem marcar o agendamento como alterado para o cliente
+- filtro por período
+- resumo bruto
+- resumo da parte da barbearia
+- resumo da parte dos barbeiros
+- total de atendimentos
+- total de pagos
+- total de pendentes
+- consolidado por barbeiro
+- extrato detalhado
 
-### Persistencia e Concorrencia
+O conteúdo pesado foi dividido em navegação interna:
 
-- Operacoes de escrita sobre os dados agregados devem ser serializadas para evitar perda de atualizacao
-- Fluxos como criar, cancelar, reagendar, concluir e registrar pagamento nao podem sobrescrever alteracoes simultaneas
+- consolidado
+- extrato
 
-### Infraestrutura e Rede
+## Regras de Negócio Consolidadas
 
-- A API deve escutar em `0.0.0.0` para funcionar fora do `localhost`
-- O frontend deve usar o host atual da pagina como fallback para localizar a API em ambiente local
-- Para acesso por celular na rede local, deve ser possivel definir `HOST_IP` e `VITE_API_URL`
+### Agendamento
 
-## Historico Consolidado Do Que Ja Foi Feito
+1. Todo agendamento pertence a exatamente um cliente.
+2. Todo agendamento pertence a exatamente um barbeiro.
+3. Todo agendamento pertence a exatamente um serviço.
+4. Todo novo agendamento nasce com status `confirmed`.
+5. Os status válidos são `confirmed`, `cancelled` e `completed`.
+6. A duração padrão do atendimento é de 45 minutos.
+7. O barbeiro não pode ter dois agendamentos ativos no mesmo horário.
+8. Um horário só pode ser reservado se estiver habilitado e livre.
+9. A disponibilidade efetiva de booking vem do backend.
+
+### Cancelamento, Remarcação e Alteração
+
+1. Cliente, barbeiro e admin operam sobre a mesma base de dados.
+2. Cliente pode cancelar ou remarcar apenas os próprios agendamentos.
+3. Barbeiro pode cancelar ou remarcar apenas os agendamentos vinculados a ele.
+4. Admin pode cancelar ou remarcar qualquer agendamento.
+5. Agendamento cancelado não pode ser concluído.
+6. Agendamento concluído não pode ser cancelado depois.
+7. Alteração feita por barbeiro ou admin gera badge `Alterado`.
+8. Alteração apenas de serviço também gera badge `Alterado`.
+
+### Regras Configuráveis da Barbearia
+
+As regras abaixo podem ser configuradas pelo admin no sistema:
+
+- quando o atendimento pode ser concluído:
+  - `after_start`
+  - `anytime`
+- quantas horas antes o barbeiro pode cancelar ou remarcar
+- quantas horas antes o cliente pode cancelar ou remarcar
+- quantas horas antes o cliente pode agendar
+
+Padrões atuais:
+
+- conclusão: após iniciar o atendimento
+- barbeiro cancela/remarca com 12 horas
+- cliente cancela/remarca com 3 horas
+- cliente agenda com 2 horas
+
+Observação:
+
+- a antecedência mínima para criar agendamento vale para cliente
+- admin pode criar agendamento sem essa restrição operacional
+
+### Conclusão e Pagamento
+
+1. Apenas barbeiro e admin podem concluir atendimento.
+2. Apenas barbeiro e admin podem marcar pagamento.
+3. Pagamento só pode ser registrado em agendamento `completed`.
+4. Pagamento não pode ser registrado em duplicidade.
+5. Agendamento cancelado não pode ser pago.
+6. O pagamento registra data e hora.
+
+### Serviços
+
+1. Serviços pertencem à barbearia.
+2. O admin pode criar, editar, ativar, desativar e excluir serviços.
+3. Serviço pode ser atribuído a todos os barbeiros ou a uma seleção específica.
+4. Serviço desativado continua visível no histórico e em agendamentos antigos.
+5. Serviço desativado não pode entrar em novos agendamentos.
+6. Serviço não pode ser excluído se já possuir agendamentos vinculados.
+
+### Clientes, Barbeiros e Admins
+
+1. O admin pode cadastrar clientes, barbeiros e administradores.
+2. O admin pode excluir clientes, barbeiros e administradores.
+3. Cliente não pode ser excluído se possuir agendamentos.
+4. Barbeiro não pode ser excluído se possuir agendamentos.
+5. Admin não pode excluir a si próprio.
+6. O último admin do sistema não pode ser excluído.
+
+### Disponibilidade
+
+1. O sistema opera no timezone de Brasília.
+2. A disponibilidade padrão do barbeiro é gerada automaticamente no cadastro.
+3. A geração padrão cobre os próximos 12 meses.
+4. A geração padrão considera segunda a sexta.
+5. Os slots são criados com passo de 45 minutos.
+6. Se houver barbeiros sem disponibilidade persistida, o backend recompõe a disponibilidade no bootstrap.
+
+## Financeiro
+
+### Regra de Rateio
+
+Cada serviço pago é dividido em:
+
+- 30% para a barbearia
+- 70% para o barbeiro
+
+### O que entra no financeiro
+
+- cancelados não entram
+- previsto considera agendamentos válidos do período
+- recebido considera apenas os pagos
+- pendente considera atendimentos ainda não pagos
+
+### Visões disponíveis
+
+- bruto previsto e recebido
+- barbearia previsto e recebido
+- barbeiro previsto e recebido
+- total de atendimentos, pagos e pendentes
+- consolidado por barbeiro
+- extrato por atendimento
+
+### Filtro padrão
+
+O financeiro abre por padrão com:
+
+- primeiro dia do mês atual
+- último dia do mês atual
+
+## Interface e Experiência
+
+### Agenda
+
+- badges visuais para `Confirmado`, `Cancelado`, `Concluído`, `Pago` e `Alterado`
+- `Cancelado` é vermelho
+- `Confirmado` usa fundo branco com borda e texto verdes
+- `Concluído` é verde sólido
+- cancelados ficam recolhidos no final em visão `Todos`
+
+### Cliente
+
+- na agenda do cliente não existe busca textual
+- o cliente usa apenas filtro por status
+- a listagem do cliente exibe todo o histórico dele
+
+### Barbeiro
+
+- o botão `Concluir` pode ficar bloqueado conforme a regra configurada
+- quando bloqueado, a interface mostra tooltip contextual
+- a disponibilidade foi otimizada para reduzir scroll
+
+### Admin
+
+- a navegação principal do admin é por menu suspenso
+- a `Home` do admin foi renomeada para `Agenda`
+- a agenda do admin suporta visão por dia e por mês
+- a visão mensal mostra resumo por dia e permite abrir o detalhe do dia
+
+### Mobile
+
+- a interface foi refinada para uso em celular
+- menu de 3 pontos e botão de sair ficam ancorados corretamente
+- filtros foram incorporados aos próprios componentes para evitar desperdício de espaço
+
+## Segurança
+
+### Autenticação e Sessão
+
+- JWT é assinado no backend
+- o backend valida assinatura, expiração e escopos
+- há access token curto e refresh token
+- cookies são usados para a sessão
+- existe fallback de access token em memória e `sessionStorage` para estabilidade de navegação
+
+### Armazenamento de Senha
+
+- senhas novas são armazenadas com hash `scrypt`
+- usuários legados são migrados no bootstrap se ainda estiverem em texto puro
+
+### Cookies
+
+Os cookies de autenticação possuem configuração dedicada:
+
+- `SameSite` configurável
+- `Secure` configurável
+- `Path` configurável
+- `Domain` opcional
+- `Max-Age`
+- `Expires`
+- `Priority=High`
+
+### CORS e CSRF
+
+- CORS é restrito a origens permitidas
+- há suporte ao host local da API com frontend na porta `5173`
+- requests mutáveis exigem token CSRF
+
+### Logout
+
+Ao fazer logout, o sistema limpa:
+
+- sessão local
+- access token em memória
+- access token em `sessionStorage`
+- dados de navegação
+- filtros e modais
+
+## Persistência, Concorrência e Banco
+
+1. MongoDB é o banco principal.
+2. Escritas são serializadas para evitar perda de atualização.
+3. O backend usa um agregado `AppData` para leitura e escrita da base lógica.
+4. IDs novos são gerados com UUID.
+5. O seed mínimo cria um admin padrão quando o banco está vazio.
+
+### Seed mínimo
+
+O seed mínimo atual garante:
+
+- admin padrão `admin@barbearia.local`
+- senha padrão `123456`
+- regras padrão da barbearia
+
+O seed está separado em:
+
+- [apps/api/src/infra/seed.ts](/home/neuberger/Documentos/projetinho-barbearia/apps/api/src/infra/seed.ts)
+
+## Infraestrutura e Ambiente
 
 ### Backend
 
-- A camada HTTP foi migrada para Express para gerenciamento de rotas
-- Foram introduzidos controllers para orquestrar requisicoes e separar transporte de regra de negocio
-- O roteamento HTTP foi centralizado em arquivo proprio
-- O boot da API foi simplificado para criar a aplicacao e iniciar o servidor separadamente
-- O backend passou a validar melhor transicoes invalidas de status do agendamento
-- O backend passou a serializar escritas para evitar inconsistencias em operacoes concorrentes
-- A API ganhou endpoints especificos para disponibilidade de agendamento do cliente por dia e por mes
-- O backend passou a reconstruir disponibilidade padrao quando detectar barbeiros cadastrados sem slots persistidos
+- Node.js + TypeScript
+- Express
+- Mongoose
 
 ### Frontend
 
-- O frontend passou a usar a API como fonte de verdade para horarios disponiveis
-- O fluxo de agendamento do cliente foi remodelado para funcionar em etapas: barbeiro, calendario, horarios, servico e confirmacao
-- O calendario de agendamento do cliente passou a mostrar o mes atual com indicacao de vagas e dias sem vagas
-- O calendario passou a permitir escolha explicita de mes e ano
-- O cliente passou a visualizar todos os seus agendamentos
-- O barbeiro e o administrador continuam focados na agenda do dia
-- A agenda ganhou badges visuais mais claros para confirmado, concluido, cancelado, pago e alterado
-- A agenda ganhou filtros integrados ao proprio componente da listagem
-- O fluxo de cancelamento do cliente passou a usar confirmacao em modal com aviso de antecedencia minima de 3 horas
-- O layout mobile foi refinado, incluindo posicionamento do menu de 3 pontos, do botao sair e do botao flutuante de novo agendamento
+- Vite
+- React
 
-## Requisitos Nao Funcionais
+### Rede local
 
-- O projeto deve ser containerizado com Docker
-- O banco de dados principal sera MongoDB
-- O backend sera desenvolvido com Node.js e TypeScript
-- O frontend sera desenvolvido com Vite React
-- O sistema deve operar no timezone de Brasilia
-- O sistema deve ser organizado para facilitar manutencao e evolucao
-- O codigo deve ser escrito com foco em legibilidade, testes e separacao de responsabilidades
+- a API deve escutar em `0.0.0.0`
+- o frontend pode localizar a API pelo host atual da página
+- o projeto suporta acesso via celular na rede local usando `HOST_IP`
 
-## Diretrizes Tecnicas
+### Variáveis de ambiente usadas
 
-### Backend
+- `HOST`
+- `PORT`
+- `HOST_IP`
+- `MONGODB_URI`
+- `JWT_SECRET`
+- `NODE_ENV`
+- `CORS_ORIGINS`
+- `AUTH_COOKIE_SAMESITE`
+- `AUTH_COOKIE_SECURE`
+- `AUTH_COOKIE_DOMAIN`
+- `AUTH_COOKIE_PATH`
+- `VITE_API_URL`
 
-- Utilizar TypeScript
-- Organizar camadas de forma clara
-- Separar dominio, regras de negocio e acesso a dados
-- Evitar logica de negocio espalhada em controllers
+## Qualidade e Testes
 
-### Frontend
+- regras críticas de booking possuem testes automatizados
+- build do frontend deve permanecer estável
+- decisões estruturais relevantes devem ser registradas
 
-- Organizar a aplicacao por modulos ou features
-- Separar componentes visuais de regras de negocio sempre que possivel
-- Tratar estados de carregamento, erro e sucesso
-- Garantir boa experiencia de uso em desktop e mobile
+## Critério de Sucesso da V1
 
-### Banco de Dados
+A V1 é considerada pronta quando:
 
-- Modelar colecoes com foco nas regras do dominio
-- Garantir consistencia minima para evitar conflitos de agenda
-- Prever campos de auditoria como data de criacao e atualizacao
-
-## Padrao de Qualidade
-
-### Testes
-
-As seguintes diretrizes devem ser seguidas:
-
-- Sempre escrever testes antes da implementacao da funcionalidade quando viavel
-- Priorizar testes unitarios para regras de negocio
-- Criar testes de integracao para fluxos criticos, principalmente agendamento, disponibilidade e relatorio financeiro
-- Testes existentes nao devem ser alterados sem justificativa clara ou autorizacao explicita
-
-### Padrao de Projeto
-
-- O projeto deve manter consistencia de nomenclatura, estrutura e estilo de codigo
-- Novas funcionalidades devem seguir o padrao arquitetural adotado no repositorio
-- Toda decisao estrutural relevante deve ser documentada
-
-## Roadmap Inicial Sugerido
-
-### Fase 1
-
-- Estruturar backend e frontend
-- Configurar ambiente com Docker
-- Configurar autenticacao
-- Criar entidades principais
-
-### Fase 2
-
-- Implementar cadastro de barbeiros e clientes
-- Implementar disponibilidade
-- Implementar criacao e consulta de agendamentos
-
-### Fase 3
-
-- Implementar filtros administrativos
-- Implementar remarcacao e cancelamento
-- Implementar relatorio financeiro
-
-## Criterio de Sucesso da Primeira Versao
-
-A primeira versao do sistema sera considerada funcional quando:
-
-- O cliente conseguir criar conta e autenticar
-- O cliente conseguir agendar horario com um barbeiro
-- O administrador conseguir visualizar a agenda do dia
-- O administrador conseguir filtrar agendamentos por cliente e barbeiro
-- O sistema impedir conflitos de horario
-- O administrador conseguir visualizar a previsao de receita por periodo
-- Barbeiro conseguir acessar o aplicativo para bloquear horarios, concluir agendamentos e marcar agendamentos como pago
+- cliente consegue se cadastrar e autenticar
+- cliente consegue criar agendamento
+- cliente consegue visualizar todo o histórico próprio
+- barbeiro consegue visualizar agenda, concluir atendimento e marcar pagamento
+- barbeiro consegue gerir disponibilidade
+- admin consegue criar agendamento em nome do cliente
+- admin consegue gerir serviços, clientes, barbeiros, admins e regras
+- admin consegue visualizar agenda por dia e por mês
+- admin consegue visualizar financeiro com consolidado e extrato
+- sistema impede conflitos de agenda
+- sistema respeita permissões por perfil
