@@ -44,6 +44,7 @@ function LoadingScreen() {
   );
 }
 
+
 function AppMessageBar(props: Readonly<{ message: string; onClose: () => void }>) {
   if (!props.message) {
     return null;
