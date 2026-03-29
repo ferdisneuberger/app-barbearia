@@ -219,14 +219,16 @@ export function AppointmentsPanel(props: Props) {
       <div className="panel-head">
         <h2>Agenda</h2>
         <div className="agenda-filters">
-          <label className="compact-field">
-            <span>Busca</span>
-            <input
-              value={props.search ?? ""}
-              onChange={(event) => props.onSearchChange?.(event.target.value)}
-              placeholder="Cliente, barbeiro ou serviço"
-            />
-          </label>
+          {props.role !== "client" ? (
+            <label className="compact-field">
+              <span>Busca</span>
+              <input
+                value={props.search ?? ""}
+                onChange={(event) => props.onSearchChange?.(event.target.value)}
+                placeholder="Cliente, barbeiro ou serviço"
+              />
+            </label>
+          ) : null}
           {props.role === "barber" || props.role === "admin" ? (
             <label className="compact-field">
               <span>Data</span>
