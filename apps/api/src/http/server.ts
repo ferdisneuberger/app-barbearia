@@ -4,6 +4,7 @@ import { logError, logInfo } from "./logger.ts";
 
 const port = Number(process.env.PORT ?? 3001);
 const host = process.env.HOST ?? "0.0.0.0";
+console.log(`HOST: ${host}`);
 const app = createApp();
 
 async function bootstrap() {

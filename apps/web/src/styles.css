@@ -47,6 +47,7 @@ button:disabled {
 
 .small {
   padding: 0.5rem 0.8rem;
+  margin: 0.2rem;
 }
 
 .danger {
@@ -316,7 +317,8 @@ select {
 .row p,
 .message,
 .subpanel p {
-  margin: 0.2rem 0 0;
+  padding: 0.1rem;
+  margin: 0.2rem;
 }
 
 .row-actions {
@@ -512,7 +514,6 @@ select {
   flex-shrink: 0;
   min-width: 260px;
 }
-
 .menu-wrap {
   position: relative;
   flex-shrink: 0;
@@ -916,6 +917,12 @@ select {
   .fab {
     right: 1rem;
     bottom: 1rem;
+  }
+
+  .service-list-item {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
   }
 }
 
